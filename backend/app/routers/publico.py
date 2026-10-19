@@ -8,6 +8,7 @@ from app.core.util import hoy_py, ip_valida, rec, recs
 from app.domain.geo import extraer_coordenadas
 from app.services.auth import consumir_cupo
 from app.services.cotizador import cotizar, resolver_zona
+from app.services.moneda import aplicar_moneda
 from app.services.ordenes import seguimiento
 from app.services.parametros import pbool
 from app.services.parametros import obtener_parametros
@@ -28,6 +29,7 @@ class CotizarIn(BaseModel):
     combo_id: str | None = None
     cupon: str | None = None
     presupuesto_maximo: int | None = None
+    moneda: str | None = None
 
 
 class RegistroIn(BaseModel):
@@ -248,7 +250,38 @@ async def cotizador(datos: CotizarIn):
     if cuerpo.get("combo_id"):
         cuerpo["combo_id"] = UUID(cuerpo["combo_id"])
     async with transaccion() as conn:
-        return await cotizar(conn, cuerpo, None, con_margen=False)
+        resultado = await cotizar(conn, cuerpo, None, con_margen=False)
+        return await aplicar_moneda(conn, resultado, cuerpo.get("moneda"))
+
+
+@router.get("/monedas")
+async def monedas():
+    async with transaccion() as conn:
+        filas = await conn.fetch(
+            "SELECT codigo, nombre, decimales, es_base FROM catalogo.monedas WHERE habilitada ORDER BY es_base DESC, codigo"
+        )
+    return recs(filas)
+
+
+@router.get("/paises")
+async def paises():
+    async with transaccion() as conn:
+        filas = await conn.fetch(
+            """
+            SELECT p.codigo, p.nombre,
+                   COALESCE(
+                     jsonb_agg(jsonb_build_object('codigo', d.codigo, 'nombre', d.nombre))
+                       FILTER (WHERE d.id IS NOT NULL),
+                     '[]'::jsonb
+                   ) AS documentos
+            FROM catalogo.paises p
+            LEFT JOIN catalogo.tipos_documento d ON d.pais = p.codigo
+            WHERE p.activo
+            GROUP BY p.codigo, p.nombre
+            ORDER BY p.nombre
+            """
+        )
+    return recs(filas)
 
 
 @router.post("/registro")

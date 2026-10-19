@@ -1,6 +1,7 @@
 import logging
 from datetime import timedelta
 
+from app.core.config import settings
 from app.core.db import transaccion
 from app.core.util import ahora
 from app.services.asignacion import asignar_automatico, expirar_ofertas
@@ -110,4 +111,85 @@ async def ciclo() -> None:
                     {"numero": "plan"},
                 )
                 await asignar_automatico(conn, orden_id)
+                estado_cobro = "confirmado" if settings.simular_pagos else "pendiente"
+                await conn.execute(
+                    """
+                    INSERT INTO finanzas.cobros_plan (plan_id, orden_id, monto, intento, estado, proximo_intento)
+                    VALUES ($1, $2, 0, 1, $3, now())
+                    """,
+                    plan["id"],
+                    orden_id,
+                    estado_cobro,
+                )
+        if await _correr_si_toca(conn, "cobros_plan", 12):
+            params = await obtener_parametros(conn, forzar=True)
+            tope = pent(params, "cobro_plan_reintentos")
+            pendientes = await conn.fetch(
+                """
+                SELECT * FROM finanzas.cobros_plan
+                WHERE estado = 'pendiente' AND proximo_intento <= now()
+                """
+            )
+            for cobro in pendientes:
+                if int(cobro["intento"]) >= tope:
+                    await conn.execute(
+                        "UPDATE finanzas.cobros_plan SET estado = 'fallido' WHERE id = $1",
+                        cobro["id"],
+                    )
+                    await conn.execute(
+                        "UPDATE operacion.planes_recurrentes SET estado = 'pausado' WHERE id = $1 AND estado = 'activo'",
+                        cobro["plan_id"],
+                    )
+                    continue
+                await conn.execute(
+                    """
+                    UPDATE finanzas.cobros_plan
+                    SET intento = intento + 1, proximo_intento = now() + interval '2 days'
+                    WHERE id = $1
+                    """,
+                    cobro["id"],
+                )
+        if await _correr_si_toca(conn, "documentos_por_vencer", 24):
+            params = await obtener_parametros(conn, forzar=True)
+            dias = pent(params, "documento_aviso_dias")
+            por_vencer = await conn.fetch(
+                """
+                SELECT d.vence_en, e.usuario_id
+                FROM personal.documentos d
+                JOIN personal.empleados e ON e.id = d.empleado_id
+                WHERE d.estado = 'aprobado'
+                  AND d.vence_en IS NOT NULL
+                  AND d.vence_en BETWEEN CURRENT_DATE AND CURRENT_DATE + make_interval(days => $1)
+                """,
+                dias,
+            )
+            for documento in por_vencer:
+                await notificar(
+                    conn,
+                    "documento_por_vencer",
+                    documento["usuario_id"],
+                    {"vence_en": documento["vence_en"].isoformat()},
+                )
+        if await _correr_si_toca(conn, "cola_fiscal", 6):
+            cola = await conn.fetch(
+                """
+                SELECT * FROM sistema.cola_fiscal
+                WHERE estado = 'pendiente' AND proximo_intento <= now()
+                """
+            )
+            for item in cola:
+                if int(item["intentos"]) >= 3:
+                    await conn.execute(
+                        "UPDATE sistema.cola_fiscal SET estado = 'error', ultimo_error = 'sin respuesta del emisor' WHERE id = $1",
+                        item["id"],
+                    )
+                    continue
+                await conn.execute(
+                    """
+                    UPDATE sistema.cola_fiscal
+                    SET intentos = intentos + 1, proximo_intento = now() + interval '1 day'
+                    WHERE id = $1
+                    """,
+                    item["id"],
+                )
     logger.info("Ciclo de mantenimiento listo")

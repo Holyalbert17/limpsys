@@ -6,7 +6,7 @@ Crea personas nuevas en cada corrida. No toca las cuentas de demostración.
 import base64
 import json
 import secrets
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 
 import jwt
 from fastapi.testclient import TestClient
@@ -19,6 +19,16 @@ PNG = (
     b"\x08\x02\x00\x00\x00\x90wS\xde\x00\x00\x00\x0cIDATx\x9cc\xf8\xcf\xc0"
     b"\x00\x00\x00\x03\x00\x01\x00\x05\xfe\xd4\xef\x00\x00\x00\x00IEND\xaeB`\x82"
 )
+
+
+def dias_habiles(cantidad: int, desde_hoy: int = 21) -> list[str]:
+    dia = date.today() + timedelta(days=desde_hoy)
+    salida = []
+    while len(salida) < cantidad:
+        if dia.isoweekday() != 7:
+            salida.append(dia.isoformat())
+        dia += timedelta(days=1)
+    return salida
 
 
 def codigo(respuesta):
@@ -174,6 +184,7 @@ def asignar_y_aceptar(cliente, token_admin, token_empleado, orden_id, empleado_i
 
 
 def test_circuito_qa_agresivo():
+    fecha_ok, fecha_cancel, fecha_garantia, fecha_nueva = dias_habiles(4)
     with TestClient(app) as cliente:
         salud = cliente.get("/api/v1/salud")
         assert salud.status_code == 200 and salud.json()["ok"] is True
@@ -343,7 +354,7 @@ def test_circuito_qa_agresivo():
 
         horas = cliente.get(
             "/api/v1/disponibilidad",
-            params={"fecha": "2027-09-07", "horas": -4, "lat": -25.28, "lng": -57.63},
+            params={"fecha": fecha_ok, "horas": -4, "lat": -25.28, "lng": -57.63},
             headers=auth(token_a),
         )
         assert horas.status_code == 422 and codigo(horas) == "HORAS"
@@ -386,7 +397,7 @@ def test_circuito_qa_agresivo():
                 "tipo_hogar_id": hogar,
                 "tipo_limpieza_id": limpieza,
                 "direccion_id": direccion_a,
-                "fecha": "2027-09-07",
+                "fecha": fecha_ok,
                 "hora_inicio": "08:00:00",
             },
             headers=auth(token_a),
@@ -403,14 +414,14 @@ def test_circuito_qa_agresivo():
         assert sigue.json()["estado"] == "BORRADOR"
 
         # --- Jornada feliz: pago, asignación, cierre y calificación ---
-        total = precio(cliente, token_a, hogar, limpieza, direccion_a, "2027-09-07")
+        total = precio(cliente, token_a, hogar, limpieza, direccion_a, fecha_ok)
         clave = f"qa-{secrets.token_hex(8)}"
-        pedido, cuerpo = pedir_orden(cliente, token_a, hogar, limpieza, direccion_a, "2027-09-07", total, clave)
+        pedido, cuerpo = pedir_orden(cliente, token_a, hogar, limpieza, direccion_a, fecha_ok, total, clave)
         assert pedido.status_code == 200, pedido.text
         orden_id = pedido.json()["id"]
         assert pedido.json()["estado"] == "EN_REVISION"
         assert "margen" not in pedido.json()
-        repetido, _ = pedir_orden(cliente, token_a, hogar, limpieza, direccion_a, "2027-09-07", total, clave)
+        repetido, _ = pedir_orden(cliente, token_a, hogar, limpieza, direccion_a, fecha_ok, total, clave)
         assert repetido.status_code == 200 and repetido.json()["id"] == orden_id
         otra_clave = cliente.post(
             "/api/v1/ordenes",
@@ -464,6 +475,30 @@ def test_circuito_qa_agresivo():
         assert bitcoin.status_code == 422 and codigo(bitcoin) == "MEDIO_PAGO"
 
         asignar_y_aceptar(cliente, token_admin, token_emp, orden_id, empleado_id)
+        detalle = cliente.get(f"/api/v1/ordenes/{orden_id}", headers=auth(token_a)).json()
+        assert detalle["pin"] and len(detalle["pin"]) == 4
+        movida = cliente.post(
+            f"/api/v1/ordenes/{orden_id}/reprogramar",
+            json={"fecha": fecha_nueva, "hora_inicio": "13:00:00"},
+            headers=auth(token_a),
+        )
+        assert movida.status_code == 200, movida.text
+        assert str(movida.json()["fecha"]).startswith(fecha_nueva)
+        otra_fecha = cliente.post(
+            f"/api/v1/ordenes/{orden_id}/reprogramar",
+            json={"fecha": fecha_cancel, "hora_inicio": "13:00:00"},
+            headers=auth(token_a),
+        )
+        assert otra_fecha.status_code == 409 and codigo(otra_fecha) == "REPROGRAMACION"
+        agenda = cliente.get(
+            "/api/v1/empleado/agenda",
+            params={"desde": fecha_ok, "hasta": fecha_nueva},
+            headers=auth(token_emp),
+        )
+        assert agenda.status_code == 200, agenda.text
+        propia = next(item for item in agenda.json()["ordenes"] if item["id"] == orden_id)
+        assert propia["direccion"] is None
+        assert propia["zona"]
         camino_ajeno = cliente.post(f"/api/v1/ordenes/{orden_id}/en-camino", headers=auth(token_intruso))
         assert camino_ajeno.status_code == 404
         camino_cliente = cliente.post(f"/api/v1/ordenes/{orden_id}/en-camino", headers=auth(token_a))
@@ -488,9 +523,15 @@ def test_circuito_qa_agresivo():
             headers=auth(token_emp),
         )
         assert manual.status_code == 422 and codigo(manual) == "LLEGADA_MANUAL"
-        adentro = cliente.post(
+        sin_pin = cliente.post(
             f"/api/v1/ordenes/{orden_id}/check-in",
             json={"lat": -25.28, "lng": -57.63},
+            headers=auth(token_emp),
+        )
+        assert sin_pin.status_code == 422 and codigo(sin_pin) == "PIN"
+        adentro = cliente.post(
+            f"/api/v1/ordenes/{orden_id}/check-in",
+            json={"lat": -25.28, "lng": -57.63, "pin": detalle["pin"]},
             headers=auth(token_emp),
         )
         assert adentro.status_code == 200 and adentro.json()["estado"] == "EN_CURSO"
@@ -606,8 +647,8 @@ def test_circuito_qa_agresivo():
         assert publico.status_code == 200 and publico.json()["estado"] == "CALIFICADA"
 
         # --- Cancelación y garantía, con las reglas del negocio ---
-        total_cancel = precio(cliente, token_a, hogar, limpieza, direccion_a, "2027-09-08")
-        cancelable, _ = pedir_orden(cliente, token_a, hogar, limpieza, direccion_a, "2027-09-08", total_cancel)
+        total_cancel = precio(cliente, token_a, hogar, limpieza, direccion_a, fecha_cancel)
+        cancelable, _ = pedir_orden(cliente, token_a, hogar, limpieza, direccion_a, fecha_cancel, total_cancel)
         assert cancelable.status_code == 200, cancelable.text
         cancel_id = cancelable.json()["id"]
         asignar_y_aceptar(cliente, token_admin, token_emp, cancel_id, empleado_id)
@@ -627,16 +668,17 @@ def test_circuito_qa_agresivo():
         seguir = cliente.post(f"/api/v1/ordenes/{cancel_id}/en-camino", headers=auth(token_emp))
         assert seguir.status_code == 409
 
-        total_garantia = precio(cliente, token_a, hogar, limpieza, direccion_a, "2027-09-09")
-        mala, _ = pedir_orden(cliente, token_a, hogar, limpieza, direccion_a, "2027-09-09", total_garantia)
+        total_garantia = precio(cliente, token_a, hogar, limpieza, direccion_a, fecha_garantia)
+        mala, _ = pedir_orden(cliente, token_a, hogar, limpieza, direccion_a, fecha_garantia, total_garantia)
         assert mala.status_code == 200, mala.text
         mala_id = mala.json()["id"]
         asignar_y_aceptar(cliente, token_admin, token_emp, mala_id, empleado_id)
         assert cliente.post(f"/api/v1/ordenes/{mala_id}/en-camino", headers=auth(token_emp)).status_code == 200
+        pin_mala = cliente.get(f"/api/v1/ordenes/{mala_id}", headers=auth(token_a)).json()["pin"]
         assert (
             cliente.post(
                 f"/api/v1/ordenes/{mala_id}/check-in",
-                json={"lat": -25.28, "lng": -57.63},
+                json={"lat": -25.28, "lng": -57.63, "pin": pin_mala},
                 headers=auth(token_emp),
             ).status_code
             == 200

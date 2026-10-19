@@ -15,6 +15,7 @@ from app.services.cotizador import cotizar, evaluar_cupon
 from app.services.finanzas import crear_pago
 from app.services.idempotencia import guardar, reservar
 from app.services.estado_orden import cambiar_estado
+from app.services.moneda import aplicar_moneda
 from app.services.ordenes import (
     calificar,
     cancelar_cliente,
@@ -22,6 +23,7 @@ from app.services.ordenes import (
     enviar,
     guardar_borrador,
     pedir_garantia,
+    reprogramar,
     repetir,
     responder_extra,
     seguimiento,
@@ -64,6 +66,9 @@ class BorradorIn(BaseModel):
     es_emergencia: bool = False
     factura_a_nombre: str | None = None
     origen: str = "app"
+    cantidad_empleados: int = Field(default=1, ge=1, le=4)
+    insumos_modo: str = "empresa"
+    moneda: str | None = None
 
 
 class PagoIn(BaseModel):
@@ -111,6 +116,20 @@ class PerfilIn(BaseModel):
     correo: str | None = None
     idioma: str | None = None
     fecha_nacimiento: date | None = None
+    consentimiento_version: str | None = None
+
+
+class HogarIn(BaseModel):
+    mascotas: bool = False
+    ninos: bool = False
+    hipoalergenico: bool = False
+    productos_propios: bool = False
+    areas_restringidas: str = ""
+
+
+class ReprogramarIn(BaseModel):
+    fecha: date
+    hora_inicio: time
 
 
 class PlanIn(BaseModel):
@@ -245,6 +264,8 @@ async def actualizar_perfil(datos: PerfilIn, usuario: dict = Depends(cliente_act
               telefono = COALESCE($4, telefono),
               correo = COALESCE($5, correo),
               fecha_nacimiento = COALESCE($6, fecha_nacimiento),
+              consentimiento_version = COALESCE($7, consentimiento_version),
+              consentimiento_en = CASE WHEN $7 IS NULL THEN consentimiento_en ELSE now() END,
               actualizado_en = now()
             WHERE id = $1
             """,
@@ -254,7 +275,87 @@ async def actualizar_perfil(datos: PerfilIn, usuario: dict = Depends(cliente_act
             datos.telefono,
             datos.correo,
             datos.fecha_nacimiento,
+            datos.consentimiento_version,
         )
+    return {"ok": True}
+
+
+@router.put("/cliente/hogar")
+async def hogar(datos: HogarIn, usuario: dict = Depends(cliente_actual)):
+    async with transaccion() as conn:
+        await conn.execute(
+            "UPDATE crm.clientes SET preferencias_hogar = $2::jsonb, actualizado_en = now() WHERE id = $1",
+            usuario["cliente_id"],
+            datos.model_dump(),
+        )
+    return datos.model_dump()
+
+
+@router.get("/cliente/datos")
+async def exportar_datos(usuario: dict = Depends(cliente_actual)):
+    async with transaccion() as conn:
+        await conn.execute(
+            """
+            INSERT INTO sistema.solicitudes_privacidad (usuario_id, tipo, estado)
+            VALUES ($1, 'exportar', 'entregada')
+            """,
+            usuario["id"],
+        )
+        perfil_fila = await conn.fetchrow(
+            """
+            SELECT u.cedula, u.nombre, u.apellido, u.telefono, u.correo, c.preferencias_hogar, c.consentimiento_version
+            FROM crm.clientes c JOIN seguridad.usuarios u ON u.id = c.usuario_id
+            WHERE c.id = $1
+            """,
+            usuario["cliente_id"],
+        )
+        direcciones = await conn.fetch(
+            "SELECT apodo, direccion, lat, lng, referencia FROM crm.direcciones WHERE cliente_id = $1",
+            usuario["cliente_id"],
+        )
+        ordenes = await conn.fetch(
+            """
+            SELECT numero, estado, fecha, hora_inicio, total, insumos_modo, cantidad_empleados
+            FROM operacion.ordenes WHERE cliente_id = $1 ORDER BY creado_en
+            """,
+            usuario["cliente_id"],
+        )
+    return {"perfil": rec(perfil_fila), "direcciones": recs(direcciones), "ordenes": recs(ordenes)}
+
+
+@router.post("/cliente/cuenta/eliminar")
+async def eliminar_cuenta(usuario: dict = Depends(cliente_actual)):
+    async with transaccion() as conn:
+        abiertas = await conn.fetchval(
+            """
+            SELECT count(*) FROM operacion.ordenes
+            WHERE cliente_id = $1 AND estado IN ('ENVIADA','EN_REVISION','ASIGNADA','CONFIRMADA','EN_CAMINO','EN_CURSO')
+            """,
+            usuario["cliente_id"],
+        )
+        if abiertas:
+            raise ApiError(409, "CUENTA", "Hay un servicio en curso. Cancelalo antes de eliminar la cuenta.")
+        await conn.execute(
+            """
+            INSERT INTO sistema.solicitudes_privacidad (usuario_id, tipo, estado)
+            VALUES ($1, 'eliminar', 'aplicada')
+            """,
+            usuario["id"],
+        )
+        await conn.execute(
+            """
+            UPDATE seguridad.usuarios SET
+              nombre = 'Cuenta',
+              apellido = 'eliminada',
+              correo = NULL,
+              telefono = NULL,
+              estado = 'bloqueado',
+              actualizado_en = now()
+            WHERE id = $1
+            """,
+            usuario["id"],
+        )
+        await conn.execute("UPDATE seguridad.refresh_tokens SET revocado = true WHERE usuario_id = $1", usuario["id"])
     return {"ok": True}
 
 
@@ -379,7 +480,8 @@ async def disponibilidad(
 @router.post("/presupuesto")
 async def presupuesto(datos: PresupuestoIn, usuario: dict = Depends(cliente_actual)):
     async with transaccion() as conn:
-        return await cotizar(conn, datos.model_dump(), usuario["cliente_id"], con_margen=False)
+        cuerpo = await cotizar(conn, datos.model_dump(), usuario["cliente_id"], con_margen=False)
+        return await aplicar_moneda(conn, cuerpo, datos.moneda)
 
 
 @router.post("/cupones/validar")
@@ -410,6 +512,13 @@ async def crear_orden(
         cuerpo = _ocultar(orden)
         await guardar(conn, idempotency_key, cuerpo)
     return cuerpo
+
+
+@router.post("/ordenes/{orden_id}/reprogramar")
+async def cambiar_fecha(orden_id: UUID, datos: ReprogramarIn, usuario: dict = Depends(cliente_actual)):
+    async with transaccion() as conn:
+        orden = await reprogramar(conn, usuario["cliente_id"], orden_id, datos.fecha, datos.hora_inicio, usuario["id"])
+    return _ocultar(orden)
 
 
 @router.get("/ordenes")

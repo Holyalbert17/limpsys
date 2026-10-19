@@ -169,11 +169,11 @@ El puntaje es cercanía 40%, calificación 30%, disponibilidad 20% y carga 10%. 
 
 Se ofrece de a una persona, por `tiempo_aceptacion_min` (30). La asignación automática corre si `asignacion_automatica` es verdadero o si la orden es de emergencia. Hoy la semilla lo deja en falso, así que la cola espera al panel o a `POST /admin/ordenes/{id}/asignar-auto`. La asignación manual pide un motivo cuando reemplaza a alguien ya confirmado.
 
-Entra al ranking quien está activo, cubre la zona, tiene horario que contiene el servicio, no está bloqueado y no pisa otra orden. Entre servicios se reserva `buffer_traslado_min` (30). La agenda ofrece slots de `slot_minutos` (60) entre `horario_atencion_desde` (07:00) y `horario_atencion_hasta` (20:00).
+Entra al ranking quien está activo, cubre la zona, tiene horario que contiene el servicio, no está en pausa, no está bloqueado, no pisa otra orden y no supera `horas_max_dia` (10) ni `horas_max_semana` (48). Entre servicios se reserva `buffer_traslado_min` (30). La agenda ofrece slots de `slot_minutos` (30) entre `horario_atencion_desde` (07:00) y `horario_atencion_hasta` (19:00). Una reserva normal pide al menos `anticipacion_min_horas` (3) y no pasa de `anticipacion_max_dias` (90). La emergencia salta el mínimo. El cliente puede cambiar la fecha una vez (`reprogramacion_gratis`) si faltan más de `reprogramacion_horas` (6). Si el empleado ya no puede, la solicitud vuelve a revisión.
 
 ## Recorrido del servicio
 
-Confirmada, el empleado marca que va en camino. El check-in y el check-out tienen que caer dentro de `radio_checkin_m` (150) de la dirección. Más lejos, solo se acepta con nota y foto, y queda para revisión del panel. Si el check-in pasa `alerta_demora_min` (15) de la hora pactada, se avisa.
+Confirmada, el empleado marca que va en camino. Si `pin_checkin` está activo, la confirmación guarda un PIN de 4 dígitos que el cliente ve en la solicitud y el check-in lo exige. El check-in y el check-out tienen que caer dentro de `radio_checkin_m` (150) de la dirección. Más lejos, solo se acepta con nota y foto, y queda para revisión del panel. La dirección, el teléfono y el PIN aparecen en la agenda del empleado desde `visibilidad_antes_horas` (2) antes del turno hasta `visibilidad_despues_horas` (2) después de terminarlo. Fuera de esa ventana la agenda muestra la zona. Si el check-in pasa `alerta_demora_min` (15) de la hora pactada, se avisa. Un documento aprobado y vencido impide aceptar la oferta.
 
 Para cerrar hay que completar las tareas obligatorias del tipo de limpieza y subir la foto del después. Si el tipo tiene `foto_antes_obligatoria`, también la del antes. Profunda y post-obra la piden. La foto tiene que ser un archivo subido por ese empleado. El archivo de otra persona responde 403, y un id que no existe responde 404. Al cerrar se calcula la planilla con las horas estimadas más las extras aprobadas, y los bonos de puntualidad y de calificación si corresponden.
 
@@ -195,11 +195,11 @@ WhatsApp, SMS y correo no están conectados a un proveedor. Cada aviso se guarda
 
 ## Mantenimiento
 
-Cada 30 segundos, desde que arranca el proceso: vencen ofertas, se aplican parámetros programados, se purgan ubicaciones viejas según `retencion_ubicacion_dias` (90), se cierran calificaciones vencidas y se generan las órdenes de los planes recurrentes que tocan.
+Cada 30 segundos, desde que arranca el proceso: vencen ofertas, se aplican parámetros programados, se purgan ubicaciones viejas según `retencion_ubicacion_dias` (90), se cierran calificaciones vencidas y se generan las órdenes de los planes recurrentes que tocan. Cada orden de plan deja un intento de cobro. Con los pagos simulados queda confirmado. Si queda pendiente, se reintenta hasta `cobro_plan_reintentos` (3) y después el plan se pausa. También avisa documentos que vencen dentro de `documento_aviso_dias` (30) y reintenta la cola fiscal hasta tres veces. El emisor electrónico no se llama: el CDC se guarda y la nota de crédito queda en esa cola.
 
 ## Catálogo de la API
 
-Son 159 operaciones HTTP, las de `/openapi.json`, más 3 WebSocket que Swagger no lista. El prefijo es `/api/v1`. En `/docs`, el botón Authorize recibe el `access_token` de `POST /auth/login` (sin la palabra Bearer: Swagger la agrega).
+Son 180 operaciones HTTP, las de `/openapi.json`, más 3 WebSocket que Swagger no lista. El prefijo es `/api/v1`. En `/docs`, el botón Authorize recibe el `access_token` de `POST /auth/login` (sin la palabra Bearer: Swagger la agrega).
 
 Las operaciones de cliente, empleado y panel exigen sesión. El panel además exige el permiso del rol. El superadmin tiene todos. El admin tiene todos menos `usuarios.admin` y `parametros.criticos`.
 
@@ -248,10 +248,12 @@ Ninguna pide sesión.
 | GET | `/publico/combos` | Combos vigentes y visibles en la web. |
 | GET | `/publico/ofertas` | Promociones vigentes. |
 | GET | `/publico/zonas` | Zonas activas, con polígono y traslado. |
+| GET | `/publico/monedas` | Monedas habilitadas. La base es el guaraní. |
+| GET | `/publico/paises` | Países activos y el documento de cada uno. |
 | GET | `/publico/faq` | Preguntas frecuentes. |
 | GET | `/publico/testimonios` | Testimonios curados y calificaciones reales de 4 o más. |
 | GET | `/publico/cobertura` | `lat` y `lng` obligatorios. Dice si el punto cae en una zona y el traslado. |
-| POST | `/publico/cotizar` | Precio estimado sin historial del cliente. Incluye la estimación de primera compra. No devuelve margen. |
+| POST | `/publico/cotizar` | Precio estimado sin historial del cliente. Incluye la estimación de primera compra. No devuelve margen. `moneda` distinta de PYG exige tipo de cambio vigente. |
 | POST | `/publico/registro` | Deja el alta pendiente y manda el OTP. Exige términos y contraseña propia. |
 | POST | `/publico/registro/verificar` | Confirma el OTP y crea la cuenta. |
 | POST | `/publico/contacto` | Guarda un mensaje de contacto. |
@@ -277,11 +279,15 @@ Ninguna pide sesión.
 | POST | `/direcciones` | Crea una. Si el punto no tiene zona, la API lo rechaza. |
 | PATCH | `/direcciones/{direccion_id}` | Edita apodo, referencia, piso o instrucciones. |
 | DELETE | `/direcciones/{direccion_id}` | La da de baja. |
-| GET | `/disponibilidad` | Slots libres. `fecha` es obligatoria. También `horas`, `lat` y `lng` cuando no hay dirección. |
+| GET | `/disponibilidad` | Slots libres. `fecha` es obligatoria. También `horas`, `lat` y `lng` cuando no hay dirección. Una fecha a más de 90 días responde 422 `ANTICIPACION`. |
 | POST | `/presupuesto` | Precio con el historial real del cliente. No incluye margen. |
 | POST | `/cupones/validar` | Dice si el código aplica a ese subtotal. |
 | PUT | `/ordenes/borrador` | Guarda el único borrador del cliente. |
-| POST | `/ordenes` | Envía la solicitud. El pago tiene que cubrir el anticipo. Acepta `Idempotency-Key`. |
+| POST | `/ordenes` | Envía la solicitud. El pago tiene que cubrir el anticipo. Acepta `Idempotency-Key`. Puede indicar `cantidad_empleados` (1 a 4) e `insumos_modo` (`cliente` o `empresa`). |
+| POST | `/ordenes/{orden_id}/reprogramar` | Un cambio de fecha sin cargo, si todavía falta el plazo. El segundo responde 409. |
+| PUT | `/cliente/hogar` | Mascotas, niños, productos y áreas restringidas. |
+| GET | `/cliente/datos` | Exporta perfil, direcciones y solicitudes. |
+| POST | `/cliente/cuenta/eliminar` | Anonimiza la cuenta si no hay un servicio abierto. El token pasa a 403. |
 | GET | `/ordenes` | Lista las órdenes del cliente. |
 | GET | `/ordenes/{orden_id}` | Detalle, precio visible y estado. |
 | GET | `/ordenes/{orden_id}/seguimiento` | Línea de tiempo y ubicación del empleado si ya salió. |
@@ -319,14 +325,19 @@ Ninguna pide sesión.
 | GET | `/empleado/inicio` | Próximo servicio, ofertas y si puede aceptar (capacitación al día). |
 | PATCH | `/empleado/disponibilidad` | Enciende o apaga `disponible`. Query `disponible`. |
 | GET | `/empleado/ofertas` | Ofertas vigentes para esta persona. |
-| POST | `/empleado/ofertas/{oferta_id}/aceptar` | Acepta. Falla con `CAPACITACION` si falta un curso obligatorio. |
+| POST | `/empleado/ofertas/{oferta_id}/aceptar` | Acepta. Falla con `CAPACITACION` si falta un curso, con `DOCUMENTO_VENCIDO` si hay un documento vencido y con `JORNADA` si supera el tope de horas. |
 | POST | `/empleado/ofertas/{oferta_id}/rechazar` | Rechaza. Entra en el umbral de rechazo del ranking. |
-| GET | `/empleado/agenda` | Servicios entre `desde` y `hasta`. |
+| GET | `/empleado/agenda` | Servicios entre `desde` y `hasta`. Dirección y teléfono solo dentro de la ventana del turno. |
+| PUT | `/empleado/perfil` | Contacto de emergencia y modalidad. |
+| PUT | `/empleado/medio-cobro` | Carga el medio de cobro. Se puede usar `medio_cobro_espera_horas` (24) después. |
+| POST | `/empleado/pausa` | Pausa la oferta de turnos hasta una fecha. |
+| POST | `/ordenes/{orden_id}/imprevistos` | Registra un imprevisto del servicio en curso. |
+| POST | `/empleado/liquidaciones/{liquidacion_id}/items/{item_id}/disputar` | Disputa un ítem dentro de `disputa_pago_horas` (48). |
 | POST | `/empleado/bloqueos` | Bloquea un rango de la agenda. |
 | DELETE | `/empleado/bloqueos/{bloqueo_id}` | Quita ese bloqueo. |
 | PUT | `/empleado/horarios` | Reemplaza la semana. El día es ISO: 1 lunes, 6 sábado. |
 | POST | `/ordenes/{orden_id}/en-camino` | Pasa la orden a `EN_CAMINO`. |
-| POST | `/ordenes/{orden_id}/check-in` | Llegada. Fuera de `radio_checkin_m` exige nota y foto, y queda en revisión. Acepta `Idempotency-Key`. |
+| POST | `/ordenes/{orden_id}/check-in` | Llegada. Fuera de `radio_checkin_m` exige nota y foto, y queda en revisión. Si la orden tiene PIN, un PIN distinto responde 422. Acepta `Idempotency-Key`. |
 | POST | `/ordenes/{orden_id}/check-out` | Cierra el servicio. Exige tareas obligatorias y foto del después. Acepta `Idempotency-Key`. |
 | PATCH | `/ordenes/{orden_id}/tareas/{tarea_id}` | Marca una tarea del checklist. |
 | POST | `/ordenes/{orden_id}/extra-tiempo` | Pide minutos extra. El cliente los aprueba. |
@@ -369,8 +380,18 @@ Ninguna pide sesión.
 | POST | `/admin/empleados/{empleado_id}/sancionar` | Registra una sanción. Una grave puede suspender. |
 | GET | `/admin/finanzas/planilla` | Pagos y costos del período. |
 | POST | `/admin/finanzas/pagos/{pago_id}/confirmar` | Confirma un pago que no pasó por la simulación. |
-| POST | `/admin/liquidaciones/generar` | Arma la liquidación. Query `empleado_id`, `desde` y `hasta`. |
-| POST | `/admin/liquidaciones/{liquidacion_id}/pagar` | La marca pagada. |
+| POST | `/admin/liquidaciones/generar` | Arma la liquidación y sus ítems. Query `empleado_id`, `desde` y `hasta`. |
+| POST | `/admin/liquidaciones/cerrar-periodo` | Genera las liquidaciones de un ciclo `semanal`, `quincenal` o `mensual`. Query `fecha`. |
+| POST | `/admin/liquidaciones/{liquidacion_id}/revisar` | Pasa de `generada` a `en_revision`. |
+| POST | `/admin/liquidaciones/{liquidacion_id}/aprobar` | Pasa de `en_revision` a `aprobada`. |
+| POST | `/admin/liquidaciones/{liquidacion_id}/pagar` | La marca pagada. Si el medio de cobro todavía no cumplió la espera, responde 409. |
+| POST | `/admin/liquidaciones/{liquidacion_id}/conciliar` | Pasa de `pagada` a `conciliada`. |
+| GET | `/admin/liquidaciones/{liquidacion_id}/banco` | CSV para el banco. |
+| GET | `/admin/sucursales-operacion` | Sucursales de la operación. |
+| POST | `/admin/sucursales-operacion` | Alta de sucursal. Pide superadmin. |
+| POST | `/admin/tipos-cambio` | Habilita una moneda y guarda cuántos guaraníes vale una unidad. |
+| PATCH | `/admin/documentos/{documento_id}` | Aprueba, rechaza y carga el vencimiento. |
+| POST | `/admin/ordenes/{orden_id}/equipo` | Suma una persona de apoyo, hasta `cantidad_empleados`. |
 | GET | `/admin/parametros` | Parámetros vigentes. |
 | PUT | `/admin/parametros` | Cambia uno y deja historial. Los cuatro críticos piden superadmin. |
 | GET | `/admin/parametros/historial` | Cambios anteriores. |
@@ -441,17 +462,19 @@ Están en `.env`, con el modelo en `.env.example`.
 .\.venv\Scripts\python.exe -m pytest tests -q
 ```
 
-Las tres pruebas usan la base local, no un doble.
+Las pruebas usan la base local, no un doble.
 
 `tests/test_precios.py` cubre la fórmula, el mínimo de horas, el recorte de margen y el polígono.
 
-`tests/test_api.py` recorre salud, cotización pública, alta de cliente con cambio obligatorio de clave, y una jornada completa creada por la API: empleado con horario, pago, asignación, check-in fuera de radio, checklist, foto, check-out, PDF y KPIs.
+`tests/test_api.py` recorre salud, cotización pública, alta de cliente con cambio obligatorio de clave, y una jornada completa creada por la API: empleado con horario, pago, asignación, check-in fuera de radio, PIN, checklist, foto, check-out, PDF y KPIs.
+
+`tests/test_reglas.py` cubre moneda sin tipo de cambio, cotización en dólares cuando hay tasa, países, una reserva a más de 90 días, preferencias del hogar, exportación de datos, medio de cobro, imprevisto ajeno y eliminación de la cuenta.
 
 `tests/test_qa_agresivo.py` es el circuito que intenta romper la API y después la recorre entera. Crea sus propias personas y no usa las cuentas de demostración. Comprueba, en este orden:
 
 1. Rechazos: sin sesión, cédula con SQL, cuerpo vacío, token sin firma, cantidad negativa o texto, punto fuera de cobertura, cobertura sin coordenadas, enlace de seguimiento inexistente, registro sin términos, contraseña débil, webhook sin secreto, webhook con cuerpo roto y pago inexistente.
 2. Aislamiento: un cliente no entra al panel, un token con rol falsificado no escala, un admin no cambia un parámetro crítico, no se edita la dirección de otro, no se descarga el archivo de otro y no se lista la orden ajena.
-3. Jornada feliz del 2027-09-07: presupuesto sin margen, pago total, la misma clave de idempotencia no duplica la orden, otra persona con esa clave recibe 409, asignación, aceptación, check-in fuera de radio, checklist, foto propia, check-out, nota 5, nota del empleado, PDF y seguimiento público. La garantía y una disputa posterior quedan rechazadas porque la orden ya está `CALIFICADA`.
-4. Cancelación del 2027-09-08: se cancela una vez y la segunda, igual que salir en camino después, responde 409.
-5. Garantía del 2027-09-09: nota 2, una re-limpieza en `EN_REVISION` y el segundo pedido responde 422.
+3. Jornada feliz, en un día hábil dentro de los 90 días: presupuesto sin margen, pago total, la misma clave de idempotencia no duplica la orden, otra persona con esa clave recibe 409, asignación, aceptación, un cambio de fecha y el segundo rechazado, agenda sin dirección, check-in fuera de radio, PIN incorrecto, checklist, foto propia, check-out, nota 5, nota del empleado, PDF y seguimiento público. La garantía y una disputa posterior quedan rechazadas porque la orden ya está `CALIFICADA`.
+4. Cancelación de otro día hábil: se cancela una vez y la segunda, igual que salir en camino después, responde 409.
+5. Garantía de un tercer día: nota 2, una re-limpieza en `EN_REVISION` y el segundo pedido responde 422.
 6. El cliente de contraste queda bloqueado y su token vigente responde 403 `CLIENTE_BLOQUEADO`.

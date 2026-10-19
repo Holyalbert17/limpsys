@@ -1,6 +1,7 @@
-from datetime import date, datetime, time
+from datetime import date, datetime, time, timedelta
 from decimal import Decimal
 from uuid import UUID
+from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, Depends, Header
 from pydantic import BaseModel, Field
@@ -8,8 +9,9 @@ from pydantic import BaseModel, Field
 from app.core.db import transaccion
 from app.core.deps import empleado_actual
 from app.core.errors import ApiError
-from app.core.util import decimal, rec, recs
-from app.services.finanzas import pedir_adelanto
+from app.core.util import ahora, decimal, rec, recs
+from app.services.finanzas import disputar_item, pedir_adelanto
+from app.services.parametros import obtener_parametros, pent
 from app.services.idempotencia import guardar, reservar
 from app.services.ordenes import (
     calificar,
@@ -23,6 +25,7 @@ from app.services.ordenes import (
 from app.services.asignacion import aceptar_oferta, rechazar_oferta
 
 router = APIRouter(tags=["Empleado"])
+TZ = ZoneInfo("America/Asuncion")
 
 
 class RechazoIn(BaseModel):
@@ -35,6 +38,32 @@ class LlegadaIn(BaseModel):
     manual: bool = False
     nota: str | None = None
     foto_archivo_id: UUID | None = None
+    pin: str | None = None
+
+
+class PerfilEmpleadoIn(BaseModel):
+    contacto_emergencia_nombre: str | None = None
+    contacto_emergencia_telefono: str | None = None
+    modalidad: str | None = None
+
+
+class MedioCobroIn(BaseModel):
+    tipo: str = Field(min_length=3, max_length=40)
+    referencia: str = Field(min_length=3, max_length=80)
+
+
+class PausaIn(BaseModel):
+    hasta: datetime | None = None
+
+
+class ImprevistoIn(BaseModel):
+    tipo: str
+    detalle: str = Field(min_length=5, max_length=2000)
+    minutos_extra: int | None = Field(default=None, ge=1, le=240)
+
+
+class DisputaPagoIn(BaseModel):
+    motivo: str = Field(min_length=5, max_length=2000)
 
 
 class TareaIn(BaseModel):
@@ -187,17 +216,28 @@ async def rechazar(oferta_id: UUID, datos: RechazoIn, usuario: dict = Depends(em
     return {"orden_id": str(orden_id)}
 
 
+def _dentro_de_ventana(orden, params) -> bool:
+    if orden["fecha"] is None or orden["hora_inicio"] is None:
+        return False
+    inicio = datetime.combine(orden["fecha"], orden["hora_inicio"], tzinfo=TZ)
+    fin = inicio + timedelta(hours=float(orden["horas_est"] or 0))
+    antes = timedelta(hours=pent(params, "visibilidad_antes_horas"))
+    despues = timedelta(hours=pent(params, "visibilidad_despues_horas"))
+    return inicio - antes <= ahora() <= fin + despues
+
+
 @router.get("/empleado/agenda")
 async def agenda(desde: date, hasta: date, usuario: dict = Depends(empleado_actual)):
     async with transaccion() as conn:
+        params = await obtener_parametros(conn)
         ordenes = await conn.fetch(
             """
-            SELECT o.id, o.numero, o.estado, o.fecha, o.hora_inicio, o.horas_est,
-                   CASE WHEN o.estado IN ('CONFIRMADA','EN_CAMINO','EN_CURSO','COMPLETADA','PAGADA','CALIFICADA')
-                        THEN d.direccion ELSE NULL END AS direccion,
-                   z.nombre AS zona
+            SELECT o.id, o.numero, o.estado, o.fecha, o.hora_inicio, o.horas_est, o.pin,
+                   d.direccion, u.telefono, z.nombre AS zona
             FROM operacion.ordenes o
             LEFT JOIN crm.direcciones d ON d.id = o.direccion_id
+            LEFT JOIN crm.clientes c ON c.id = o.cliente_id
+            LEFT JOIN seguridad.usuarios u ON u.id = c.usuario_id
             LEFT JOIN catalogo.zonas z ON z.id = d.zona_id
             WHERE o.empleado_id = $1 AND o.fecha BETWEEN $2 AND $3
               AND o.estado NOT IN ('BORRADOR','CANCELADA')
@@ -213,7 +253,15 @@ async def agenda(desde: date, hasta: date, usuario: dict = Depends(empleado_actu
             datetime.combine(desde, time.min),
             datetime.combine(hasta, time.max),
         )
-    return {"ordenes": recs(ordenes), "bloqueos": recs(bloqueos)}
+    salida = []
+    for orden in ordenes:
+        fila = rec(orden)
+        if not _dentro_de_ventana(orden, params):
+            fila["direccion"] = None
+            fila["telefono"] = None
+            fila["pin"] = None
+        salida.append(fila)
+    return {"ordenes": salida, "bloqueos": recs(bloqueos)}
 
 
 @router.post("/empleado/bloqueos")
@@ -280,7 +328,16 @@ async def check_in(
         if previo:
             return previo
         cuerpo = await registrar_llegada(
-            conn, orden_id, usuario["empleado_id"], "check-in", datos.lat, datos.lng, datos.manual, datos.nota, datos.foto_archivo_id
+            conn,
+            orden_id,
+            usuario["empleado_id"],
+            "check-in",
+            datos.lat,
+            datos.lng,
+            datos.manual,
+            datos.nota,
+            datos.foto_archivo_id,
+            datos.pin,
         )
         await guardar(conn, idempotency_key, cuerpo)
     return cuerpo
@@ -595,3 +652,98 @@ async def preferencias(datos: PreferenciaIn, usuario: dict = Depends(empleado_ac
             datos.disponible,
         )
     return {"ok": True}
+
+
+@router.put("/empleado/perfil")
+async def perfil_empleado(datos: PerfilEmpleadoIn, usuario: dict = Depends(empleado_actual)):
+    if datos.modalidad and datos.modalidad not in {"independiente", "dependiente"}:
+        raise ApiError(422, "MODALIDAD", "La modalidad es independiente o dependiente.")
+    async with transaccion() as conn:
+        await conn.execute(
+            """
+            UPDATE personal.empleados SET
+              contacto_emergencia_nombre = COALESCE($2, contacto_emergencia_nombre),
+              contacto_emergencia_telefono = COALESCE($3, contacto_emergencia_telefono),
+              modalidad = COALESCE($4, modalidad),
+              actualizado_en = now()
+            WHERE id = $1
+            """,
+            usuario["empleado_id"],
+            datos.contacto_emergencia_nombre,
+            datos.contacto_emergencia_telefono,
+            datos.modalidad,
+        )
+    return {"ok": True}
+
+
+@router.put("/empleado/medio-cobro")
+async def medio_cobro(datos: MedioCobroIn, usuario: dict = Depends(empleado_actual)):
+    async with transaccion() as conn:
+        params = await obtener_parametros(conn)
+        espera = pent(params, "medio_cobro_espera_horas")
+        await conn.execute(
+            "UPDATE personal.medios_cobro SET activo = false WHERE empleado_id = $1 AND activo",
+            usuario["empleado_id"],
+        )
+        fila = await conn.fetchrow(
+            """
+            INSERT INTO personal.medios_cobro (empleado_id, tipo, referencia, verificado_en, utilizable_desde)
+            VALUES ($1, $2, $3, now(), now() + make_interval(hours => $4))
+            RETURNING id, tipo, referencia, utilizable_desde
+            """,
+            usuario["empleado_id"],
+            datos.tipo,
+            datos.referencia,
+            espera,
+        )
+    return rec(fila)
+
+
+@router.post("/empleado/pausa")
+async def pausar(datos: PausaIn, usuario: dict = Depends(empleado_actual)):
+    async with transaccion() as conn:
+        await conn.execute(
+            "UPDATE personal.empleados SET pausa_hasta = $2, actualizado_en = now() WHERE id = $1",
+            usuario["empleado_id"],
+            datos.hasta,
+        )
+    return {"pausa_hasta": None if datos.hasta is None else datos.hasta.isoformat()}
+
+
+@router.post("/ordenes/{orden_id}/imprevistos")
+async def imprevisto(orden_id: UUID, datos: ImprevistoIn, usuario: dict = Depends(empleado_actual)):
+    tipos = {"necesito_mas_tiempo", "sin_acceso", "falta_insumo", "dano", "cliente_ausente", "otro"}
+    if datos.tipo not in tipos:
+        raise ApiError(422, "IMPREVISTO", "Ese tipo de imprevisto no existe.")
+    async with transaccion() as conn:
+        orden = await conn.fetchrow(
+            """
+            SELECT id FROM operacion.ordenes
+            WHERE id = $1 AND empleado_id = $2
+              AND estado IN ('CONFIRMADA', 'EN_CAMINO', 'EN_CURSO')
+            """,
+            orden_id,
+            usuario["empleado_id"],
+        )
+        if orden is None:
+            raise ApiError(404, "NO_ENCONTRADA", "No encontramos el servicio.")
+        fila = await conn.fetchrow(
+            """
+            INSERT INTO operacion.imprevistos (orden_id, empleado_id, tipo, detalle, minutos_extra)
+            VALUES ($1, $2, $3, $4, $5)
+            RETURNING id, tipo, estado
+            """,
+            orden_id,
+            usuario["empleado_id"],
+            datos.tipo,
+            datos.detalle,
+            datos.minutos_extra,
+        )
+    return rec(fila)
+
+
+@router.post("/empleado/liquidaciones/{liquidacion_id}/items/{item_id}/disputar")
+async def disputar_pago(liquidacion_id: UUID, item_id: UUID, datos: DisputaPagoIn, usuario: dict = Depends(empleado_actual)):
+    async with transaccion() as conn:
+        fila = await disputar_item(conn, usuario["empleado_id"], liquidacion_id, item_id, datos.motivo)
+    return rec(fila)

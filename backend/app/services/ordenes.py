@@ -7,7 +7,15 @@ from app.core.errors import ApiError
 from app.core.util import ahora, decimal, rec
 from app.domain.geo import distancia_metros
 from app.realtime import hub
-from app.services.asignacion import asignar_automatico, slots
+from app.services.asignacion import (
+    _bloqueado,
+    _en_horario,
+    _excede_jornada,
+    _ocupado,
+    asignar_automatico,
+    slots,
+    validar_reserva,
+)
 from app.services.cotizador import cotizar
 from app.services.estado_orden import cambiar_estado
 from app.services.finanzas import (
@@ -56,16 +64,22 @@ async def guardar_borrador(conn, cliente_id, datos: dict):
         "puntos_canje": int(datos.get("puntos") or 0),
         "factura_a_nombre": datos.get("factura_a_nombre"),
         "origen": datos.get("origen") or "app",
+        "cantidad_empleados": int(datos.get("cantidad_empleados") or 1),
+        "insumos_modo": datos.get("insumos_modo") or "empresa",
     }
+    if campos["insumos_modo"] not in {"cliente", "empresa"}:
+        raise ApiError(422, "INSUMOS", "Los insumos los pone el cliente o la empresa.")
+    if campos["cantidad_empleados"] < 1 or campos["cantidad_empleados"] > 4:
+        raise ApiError(422, "EQUIPO", "El equipo puede ser de 1 a 4 personas.")
     if borrador is None:
         orden_id = await conn.fetchval(
             """
             INSERT INTO operacion.ordenes (
               numero, cliente_id, tipo_hogar_id, tipo_limpieza_id, direccion_id, fecha, hora_inicio,
               combo_id, notas, presupuesto_maximo, preferencia_empleado_id, es_emergencia,
-              cupon_codigo, puntos_canje, factura_a_nombre, origen
+              cupon_codigo, puntos_canje, factura_a_nombre, origen, cantidad_empleados, insumos_modo
             )
-            VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)
+            VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18)
             RETURNING id
             """,
             await nuevo_numero(conn),
@@ -84,6 +98,8 @@ async def guardar_borrador(conn, cliente_id, datos: dict):
             campos["puntos_canje"],
             campos["factura_a_nombre"],
             campos["origen"],
+            campos["cantidad_empleados"],
+            campos["insumos_modo"],
         )
     else:
         orden_id = borrador["id"]
@@ -103,6 +119,8 @@ async def guardar_borrador(conn, cliente_id, datos: dict):
               cupon_codigo = $12,
               puntos_canje = $13,
               factura_a_nombre = COALESCE($14, factura_a_nombre),
+              cantidad_empleados = $15,
+              insumos_modo = $16,
               actualizado_en = now()
             WHERE id = $1
             """,
@@ -120,6 +138,8 @@ async def guardar_borrador(conn, cliente_id, datos: dict):
             campos["cupon_codigo"],
             campos["puntos_canje"],
             campos["factura_a_nombre"],
+            campos["cantidad_empleados"],
+            campos["insumos_modo"],
         )
     if datos.get("elementos") is not None:
         await conn.execute("DELETE FROM operacion.orden_elementos WHERE orden_id = $1", orden_id)
@@ -250,7 +270,21 @@ async def enviar(conn, cliente_id, datos: dict, actor_id):
             "El precio supera tu presupuesto. Elegí una alternativa.",
             {"opciones_presupuesto": cotizacion["opciones_presupuesto"], "total": cotizacion["total"]},
         )
-    disponibles = await slots(conn, orden["fecha"], decimal(cotizacion["horas_est"]), direccion["lat"], direccion["lng"])
+    params = await obtener_parametros(conn)
+    validar_reserva(orden["fecha"], orden["hora_inicio"], params, bool(orden["es_emergencia"]))
+    cantidad = max(1, int(orden["cantidad_empleados"] or 1))
+    duracion = decimal(cotizacion["horas_est"]) / Decimal(cantidad)
+    if duracion < 1:
+        duracion = Decimal(1)
+    disponibles = await slots(
+        conn,
+        orden["fecha"],
+        duracion,
+        direccion["lat"],
+        direccion["lng"],
+        emergencia=bool(orden["es_emergencia"]),
+        orden_id=orden["id"],
+    )
     hora = orden["hora_inicio"].strftime("%H:%M")
     slot = next((item for item in disponibles if item["hora"] == hora), None)
     if slot is None or not slot["disponible"]:
@@ -477,7 +511,76 @@ async def _direccion_orden(conn, orden):
     return await conn.fetchrow("SELECT * FROM crm.direcciones WHERE id = $1", orden["direccion_id"])
 
 
-async def registrar_llegada(conn, orden_id, empleado_id, tipo: str, lat: float, lng: float, manual: bool, nota: str | None, foto_id):
+async def reprogramar(conn, cliente_id, orden_id, fecha, hora, actor_id):
+    orden = await conn.fetchrow(
+        "SELECT * FROM operacion.ordenes WHERE id = $1 AND cliente_id = $2 FOR UPDATE",
+        orden_id,
+        cliente_id,
+    )
+    if orden is None:
+        raise ApiError(404, "NO_ENCONTRADA", "No encontramos la solicitud.")
+    if orden["estado"] not in {"ENVIADA", "EN_REVISION", "ASIGNADA", "CONFIRMADA"}:
+        raise ApiError(409, "ESTADO_INVALIDO", "Esta solicitud ya no se puede reprogramar.")
+    if orden["fecha"] is None or orden["hora_inicio"] is None:
+        raise ApiError(422, "INCOMPLETA", "La solicitud todavía no tiene fecha.")
+    params = await obtener_parametros(conn)
+    inicio = datetime.combine(orden["fecha"], orden["hora_inicio"], tzinfo=TZ)
+    if ahora() > inicio - timedelta(hours=pent(params, "reprogramacion_horas")):
+        raise ApiError(422, "REPROGRAMACION", "Falta poco para el turno. Si no podés, cancelá la solicitud.")
+    if int(orden["reprogramaciones"] or 0) >= pent(params, "reprogramacion_gratis"):
+        raise ApiError(409, "REPROGRAMACION", "Ya usaste el cambio de fecha sin cargo.")
+    validar_reserva(fecha, hora, params, bool(orden["es_emergencia"]))
+    direccion = await conn.fetchrow("SELECT * FROM crm.direcciones WHERE id = $1", orden["direccion_id"])
+    if direccion is None:
+        raise ApiError(404, "DIRECCION", "No encontramos la dirección.")
+    cantidad = max(1, int(orden["cantidad_empleados"] or 1))
+    duracion = decimal(orden["horas_est"] or 2) / Decimal(cantidad)
+    if duracion < 1:
+        duracion = Decimal(1)
+    disponibles = await slots(
+        conn,
+        fecha,
+        duracion,
+        direccion["lat"],
+        direccion["lng"],
+        emergencia=bool(orden["es_emergencia"]),
+        orden_id=orden["id"],
+    )
+    hora_txt = hora.strftime("%H:%M")
+    slot = next((item for item in disponibles if item["hora"] == hora_txt), None)
+    if slot is None or not slot["disponible"]:
+        raise ApiError(422, "SIN_CUPO", "Ese horario ya no tiene disponibilidad.")
+    await conn.execute(
+        """
+        UPDATE operacion.ordenes
+        SET fecha = $2, hora_inicio = $3, reprogramaciones = reprogramaciones + 1, actualizado_en = now()
+        WHERE id = $1
+        """,
+        orden_id,
+        fecha,
+        hora,
+    )
+    if orden["empleado_id"] and orden["estado"] in {"ASIGNADA", "CONFIRMADA"}:
+        buffer_min = pent(params, "buffer_traslado_min")
+        libre = (
+            await _en_horario(conn, orden["empleado_id"], fecha, hora, duracion)
+            and not await _bloqueado(conn, orden["empleado_id"], fecha, hora, duracion)
+            and not await _ocupado(conn, orden["empleado_id"], fecha, hora, duracion, buffer_min, orden_id)
+            and not await _excede_jornada(conn, orden["empleado_id"], fecha, duracion, params, orden_id)
+        )
+        if not libre:
+            await cambiar_estado(conn, orden_id, "EN_REVISION", actor_id, nota="Reprogramación sin cupo del empleado", campos={"empleado_id": None})
+    cliente = await _cliente(conn, cliente_id)
+    await notificar(
+        conn,
+        "reprogramada",
+        cliente["usuario_id"],
+        {"fecha": fecha.isoformat(), "hora": hora_txt},
+    )
+    return await conn.fetchrow("SELECT * FROM operacion.ordenes WHERE id = $1", orden_id)
+
+
+async def registrar_llegada(conn, orden_id, empleado_id, tipo: str, lat: float, lng: float, manual: bool, nota: str | None, foto_id, pin: str | None = None):
     orden = await conn.fetchrow(
         "SELECT * FROM operacion.ordenes WHERE id = $1 AND empleado_id = $2 FOR UPDATE",
         orden_id,
@@ -496,6 +599,8 @@ async def registrar_llegada(conn, orden_id, empleado_id, tipo: str, lat: float, 
         raise ApiError(422, "FUERA_DE_RADIO", f"Estás a {dist} m. El radio permitido es {radio} m.", {"distancia_m": dist, "radio_m": radio})
     if manual and (not nota or not foto_id):
         raise ApiError(422, "LLEGADA_MANUAL", "Fuera del radio hace falta una nota y una foto.")
+    if tipo == "check-in" and orden["pin"] and (pin or "") != orden["pin"]:
+        raise ApiError(422, "PIN", "El PIN del servicio no coincide.")
     llegada_id = await conn.fetchval(
         """
         INSERT INTO operacion.registro_llegadas (

@@ -953,3 +953,1470 @@ Principios de experiencia: esqueletos de carga en lugar de ruedas, estados vací
 • Pruebas que no pueden faltar: login por cédula con modal obligatorio; registro público con código; cotizador a registro con borrador restaurado; solicitud a pago; empleado con check-in dentro y fuera de la geocerca (Playwright permite simular geolocalización); cola offline con reconexión; guardias por rol.
 • Despliegue: contenedor Node para el SSR de Angular detrás de Caddy o Nginx, estáticos de las zonas privadas servidos desde CDN; FastAPI, PostgreSQL y Redis en el mismo Docker Compose o en servicios administrados.
 • Seguridad del frontend: Content Security Policy estricta (incluyendo los dominios de Google Maps), sin innerHTML sin sanitizar, dependencias auditadas en CI y registro de errores con Sentry sin datos personales.
+24. Requisitos esenciales del cliente
+Prioridad: E = esencial para el lanzamiento, I = importante (primera mejora), D = deseable.
+24.1 Cuenta, datos y privacidad
+Requisito
+Detalle
+Prioridad
+Perfil completo
+Nombre, foto opcional, teléfono verificado por código, correo opcional
+E
+Varias direcciones
+Apodo (casa, trabajo, quinta), mapa, referencias e instrucciones de acceso
+E
+Preferencias del hogar
+Mascotas, niños, productos hipoalergénicos, «traigo mis propios productos», áreas que no se deben tocar
+E
+Contacto de recepción
+Persona autorizada para recibir al empleado cuando el cliente no está
+I
+Consentimientos
+Aceptación de términos y privacidad con versión y fecha; consentimiento expreso para compartir ubicación y datos de acceso con el empleado asignado
+E
+Derechos sobre sus datos
+Descargar sus datos, corregirlos y solicitar la eliminación de la cuenta, conforme a la normativa de protección de datos aplicable
+E
+Seguridad de la cuenta
+Dispositivos activos, cierre remoto de sesiones, aviso por cada inicio de sesión nuevo
+I
+24.2 Solicitud y reserva
+Requisito
+Detalle
+Prioridad
+Cantidad de empleados
+Elegir 1, 2 o más empleados para casas grandes; el tiempo se divide y el precio se recalcula
+E
+Productos
+El cliente provee los insumos o la empresa los lleva (adicional configurable)
+E
+Instrucciones por orden
+Notas, fotos del lugar y áreas a priorizar para afinar el presupuesto
+E
+Reprogramar sin cancelar
+Cambiar día u hora hasta X horas antes, una vez sin costo
+E
+Empleado favorito y bloqueados
+Marcar favoritos (recargo de preferencia) y bloquear a quien no quiere recibir
+I
+Mismo equipo en recurrentes
+Mantener el mismo empleado en cada visita del plan
+I
+Lista de espera
+Si no hay disponibilidad, el cliente queda en espera y recibe aviso cuando se libera un horario
+I
+Reserva para terceros
+Pedir un servicio para un familiar y regalarlo con mensaje
+D
+Servicios de emergencia
+Botón visible para empresas con contrato; respuesta garantizada
+E
+24.3 Pagos y facturación
+Requisito
+Detalle
+Prioridad
+Medios de pago
+Tarjeta tokenizada por la pasarela (el sistema no guarda números de tarjeta), transferencia con conciliación, billeteras y saldo a favor
+E
+Anticipo y saldo
+30 % al reservar y el resto al completar, o pago total; configurable
+E
+Planes de cobro automático
+Semanal, quincenal o mensual con tarjeta guardada (ver sección 26)
+E
+Comprobantes
+Recibo y factura electrónica descargables y enviados por correo y WhatsApp
+E
+Reembolsos claros
+Estado y plazo visibles; el reembolso vuelve al medio de origen o queda como saldo
+E
+Propina
+Montos sugeridos y monto libre, 100 % para el empleado
+I
+Estado de cuenta
+Movimientos, cobros del plan, saldo a favor y puntos
+I
+24.4 Durante el servicio
+Requisito
+Detalle
+Prioridad
+Verificación del empleado
+Foto, nombre y calificación antes de la llegada, más un PIN de 4 dígitos o código QR que el cliente entrega al empleado para comenzar
+E
+Seguimiento en vivo
+Mapa, ETA y estados en lenguaje claro
+E
+Chat y llamada enmascarados
+Sin mostrar el número real de ninguna de las partes
+E
+Aprobación de horas extra
+Notificación con el costo adicional y botones Aprobar o Rechazar
+E
+Avisos de incidencias
+Demora, falta de acceso, daño reportado; con fotos
+E
+Compartir seguimiento
+Enlace temporal para que otra persona vea el estado
+I
+Conformidad al terminar
+Revisar fotos y checklist, aceptar o reportar un problema en el momento
+E
+24.5 Después del servicio
+Requisito
+Detalle
+Prioridad
+Calificación
+Puntualidad, calidad y trato, con comentario y fotos
+E
+Reclamo y re-limpieza
+Reportar un problema dentro de 24 h; si procede, re-limpieza gratuita
+E
+Reclamo por daños
+Formulario con fotos, plazo y tope definidos en la política; seguimiento del caso
+E
+Repetir y programar
+Repetir el servicio, convertirlo en plan recurrente o regalar un cupón
+E
+Historial con evidencias
+Fotos antes/después, checklist, horas y facturas por servicio
+I
+24.6 Confianza y soporte
+• Empleados con identidad, antecedentes y capacitación verificados, con insignia visible en su perfil.
+• Política de daños publicada: qué cubre, el tope por evento y cómo reclamar.
+• Centro de ayuda con preguntas frecuentes, chat y botón Ayuda en cada pantalla que ya conoce la orden en curso.
+• Disputas con evidencia (fotos, ruta, chat) y respuesta del administrador en un plazo parametrizable (por defecto 48 h).
+• Calificaciones y reseñas reales: solo clientes con servicio completado pueden calificar.
+25. Requisitos esenciales del empleado
+Prioridad: E = esencial, I = importante, D = deseable.
+25.1 Alta, documentos y cumplimiento
+Requisito
+Detalle
+Prioridad
+Onboarding guiado
+Datos personales, foto, documentos (cédula, antecedentes, constancias), capacitación obligatoria y aceptación del acuerdo de servicio
+E
+Vencimientos
+Control de fecha de vigencia de cada documento con aviso 30 y 7 días antes; bloqueo de ofertas si vence
+E
+Modalidad de vinculación
+Dependiente o independiente por servicio; define cargas, aportes y modalidad de liquidación. La configuración debe validarse con asesoría contable y laboral
+E
+Datos de cobro
+Cuenta bancaria, billetera o giro; cambio con verificación por código y espera de 24 h antes de usarse en un pago, para evitar fraudes
+E
+Contacto de emergencia
+Persona a notificar si usa el botón SOS
+E
+Derechos sobre sus datos
+Acceso, corrección y baja, igual que el cliente
+E
+25.2 Disponibilidad y operación
+Requisito
+Detalle
+Prioridad
+Disponibilidad semanal
+Franjas por día, zonas, distancia máxima, tipos de servicio y elementos que acepta
+E
+Pausa rápida
+Interruptor de «No disponible» con duración (hoy, esta semana, hasta fecha)
+E
+Pago visible antes de aceptar
+La oferta muestra cuánto cobrará, duración, distancia y tipo de servicio
+E
+Límites de horas
+Máximo diario y semanal configurable; el sistema no asigna por encima y exige descanso entre servicios
+E
+Tiempo de traslado
+Reconocimiento de traslado entre servicios por tiempo o distancia
+I
+Servicios en equipo
+Un líder y compañeros; cada uno ve su parte del checklist y su pago
+I
+Turnos de guardia
+Postularse a guardia con pago por disponibilidad y compromiso de respuesta
+I
+Cambio de turno
+Ofrecer un servicio a otro empleado, con aprobación del administrador
+I
+Ausencias
+Solicitud de licencia, enfermedad o permiso con aviso y justificativo
+E
+Insumos y herramientas
+Solicitar, recibir y devolver; registro de entrega y descuento por pérdida solo con regla clara aceptada
+I
+25.3 Durante el servicio
+Requisito
+Detalle
+Prioridad
+Un botón principal por paso
+«Voy en camino», «Llegué», «Empezar», «Terminar»; el estado siguiente se habilita solo cuando corresponde
+E
+Validación de llegada
+PIN o QR del cliente más geocerca; alternativa manual con foto y nota
+E
+Checklist con guía visual
+Cada tarea con ejemplo fotográfico de «bien hecho» y foto rápida opcional o requerida
+E
+Imprevistos
+Más tiempo, sin acceso, falta de insumo, daño previo, cliente ausente
+E
+Seguridad
+Botón SOS con ubicación en vivo, derecho a retirarse de un servicio inseguro sin penalización y reporte de acoso o maltrato
+E
+Visibilidad limitada de datos
+Dirección exacta y teléfono visibles solo desde 2 h antes hasta 2 h después del servicio (parametrizable)
+E
+Mensajes rápidos
+Plantillas: «Estoy llegando», «Estoy en la puerta», «Termino en 15 min»
+I
+Calificar al cliente
+Trato, acceso y condiciones del lugar; alimenta una lista interna de clientes con problemas
+I
+25.4 Ingresos, soporte y crecimiento
+Requisito
+Detalle
+Prioridad
+Comprobante por servicio
+Horas, tarifa, bonos, propina y descuentos desglosados
+E
+Liquidaciones y adelantos
+Semanal, quincenal o mensual con detalle y comprobante (ver sección 26)
+E
+Disputa de pagos u horas
+Reclamar un ítem con evidencia dentro de la ventana definida
+E
+Soporte y comunicados
+Chat con soporte, avisos del administrador y novedades de la operación
+E
+Capacitaciones
+Microcursos, certificados y habilitación para servicios especiales
+I
+Niveles y metas
+Bronce, Plata y Oro con beneficios visibles y barra de avance
+I
+Reconocimiento
+Insignias, mejor calificado del mes y reseñas positivas destacadas
+D
+25.5 Reglas de convivencia y calidad
+• Código de conducta aceptado al ingresar y reconfirmado cuando cambia de versión.
+• Faltas graves (maltrato, robo, no-show reiterado) disparan suspensión inmediata y revisión del administrador con evidencia.
+• Las penalizaciones son siempre explicables: la app muestra qué ocurrió, la regla aplicada y cómo apelar.
+• La apelación se responde en un plazo definido, y una penalización revocada se devuelve con su efecto en el puntaje y en el pago.
+26. Pagos y liquidaciones: semanales, quincenales y mensuales
+El ciclo de pago es configurable por empleado y por plan de cliente. Los montos y fechas son ejemplos parametrizables.
+26.1 Modalidades de liquidación del empleado
+Modalidad
+Período de corte
+Fecha de pago
+Uso sugerido
+Semanal
+Lunes 00:00 a domingo 23:59
+Miércoles siguiente (2 días de ventana de disputa)
+Empleados por servicio
+Quincenal
+Del 1 al 15 y del 16 al fin de mes
+3 días hábiles después del corte
+Opcional
+Mensual
+Día 1 al último día del mes
+Día 5 hábil del mes siguiente
+Empleados dependientes
+Adelanto
+Sobre lo ganado y ya aprobado
+Inmediato, tope del 50 % de lo acumulado, comisión parametrizable
+Opcional, a pedido
+Parámetros: modalidad por empleado, día de corte, día de pago, ventana de disputa (por defecto 48 h), monto mínimo de pago (si no se alcanza, se acumula al período siguiente), tope de adelantos y retenciones.
+26.2 Composición de la liquidación
+bruto      = Σ (horas_trabajadas × tarifa_hora) + bonos + propinas + traslados + compensaciones
+descuentos = adelantos + penalizaciones aplicadas + reposición de insumos acordada + otros aprobados
+neto       = bruto − descuentos − aportes y retenciones según modalidad
+• Qué entra al período: solo órdenes en estado PAGADA (o COMPLETADA con pago del cliente confirmado, según parámetro), sin disputa abierta y con checklist completo. Así el empleado cobra cuando el dinero ya ingresó.
+• Clientes corporativos a crédito: un parámetro decide si se paga al empleado en su ciclo aunque la empresa cliente aún no haya pagado (la empresa asume la caja) o si se espera a la cobranza.
+• Bonos: calificación ≥ 4,7, puntualidad, cantidad de servicios y metas mensuales; se calculan al cierre y se muestran desglosados.
+• Propinas: 100 % al empleado, acreditadas en el ciclo siguiente a su cobro.
+• Aportes y cargas: reglas por modalidad de vinculación, definidas con asesoría contable y laboral y cargadas como parámetros con vigencia.
+• Efectivo: si se aceptan cobros en efectivo, el empleado los registra, tiene un plazo para rendirlos y el monto pendiente se compensa contra su liquidación; hay un tope de efectivo en mano por empleado.
+26.3 Flujo de la liquidación
+ABIERTA → CERRADA → EN_REVISIÓN → APROBADA → PAGADA → CONCILIADA
+                         ↘ DISPUTADA (vuelve a EN_REVISIÓN al resolverse)
+1. Cierre automático del período mediante una tarea programada (hora de Paraguay).
+2. Borrador por empleado con todas las órdenes, bonos y descuentos.
+3. Alertas para el administrador: neto negativo, variación mayor al 40 % contra su promedio, horas por encima del límite, documentos vencidos o datos de cobro cambiados hace menos de 24 h.
+4. Ventana de disputa: el empleado ve su borrador y puede reclamar un ítem con evidencia.
+5. Aprobación individual o en lote, con registro de quién aprobó y cuándo.
+6. Pago: archivo de transferencias masivas para el banco, o integración con la pasarela o billetera; cada pago queda con referencia.
+7. Comprobante en PDF para el empleado y asiento en la planilla de ingresos y egresos.
+8. Conciliación contra el extracto bancario; los pagos rechazados vuelven a EN_REVISIÓN con el motivo.
+26.4 Pantallas
+Empleado: Mis ingresos
+• Saldo acumulado del período y fecha del próximo pago.
+• Detalle por servicio, bonos con barra de progreso y descuentos explicados uno a uno.
+• Historial de liquidaciones con comprobante descargable.
+• Botón Solicitar adelanto con el máximo disponible y la comisión visibles antes de confirmar.
+• Cambio del medio de cobro con verificación por código y aviso de la espera de 24 h.
+• Botón Reclamar sobre cualquier ítem.
+Administrador: Liquidaciones
+• Lista por período con estado, total y alertas.
+• Vista previa, aprobación individual o masiva y exportación del archivo bancario.
+• Conciliación y reintentos de pagos rechazados.
+• Reporte de costo de mano de obra contra ingresos y margen por período.
+26.5 Pagos del cliente: servicios, planes y empresas
+Modalidad
+Cobro
+Reglas
+Servicio único
+Anticipo del 30 % al reservar y saldo al completar
+Reembolso según la política de cancelación
+Plan semanal
+Cobro automático semanal con tarjeta guardada, 48 h antes de la primera visita de la semana
+Descuento del plan; pausa, cambio o baja con aviso previo configurable
+Plan quincenal
+Cobro cada 15 días
+Igual al semanal
+Plan mensual prepago
+Un cobro mensual por las N visitas del mes
+Visitas no usadas se arrastran un mes o caducan, según parámetro
+Paquete prepagado
+Pago único por un saldo de visitas (por ejemplo, Mensual 4x)
+Vencimiento del saldo y transferencia no permitida salvo regalo
+Empresas
+Facturación mensual con cierre el último día, vencimiento a 15 o 30 días y orden de compra opcional
+Estado de cuenta, recordatorios de cobro y suspensión por mora configurable
+Reglas de cobro automático
+• Los reintentos de un cobro fallido ocurren al día 1, 3 y 5, con aviso por WhatsApp y correo en cada intento.
+• Tras el tercer fallo, el plan se pausa y el cliente puede regularizar con un enlace de pago.
+• Se emite la factura electrónica SIFEN por cada cobro y una nota de crédito por cada reembolso.
+• Cambios de plan con prorrateo; la baja surte efecto al fin del período ya pagado.
+• El cliente ve la fecha y el monto del próximo cobro, y puede cambiar de tarjeta, pausar o cancelar desde su perfil.
+• Tarjetas: solo se guarda el token de la pasarela; el sistema nunca almacena el número completo ni el código de seguridad.
+26.6 Datos y endpoints nuevos
+Entidad
+Campos clave
+medios_cobro_empleado
+empleado_id, tipo, referencia_enmascarada, verificado_en, utilizable_desde
+periodos_liquidacion
+id, modalidad, desde, hasta, estado, cerrado_en
+liquidaciones (ampliada)
+periodo_id, empleado_id, bruto, descuentos, neto, estado, aprobado_por, pagado_en, referencia_pago
+liquidacion_items
+liquidacion_id, tipo (servicio, bono, propina, traslado, descuento), orden_id, monto, descripcion
+adelantos
+empleado_id, monto, comision, estado, liquidacion_id
+disputas_pago
+liquidacion_item_id, motivo, evidencia, estado, resolucion
+planes_cliente
+cliente_id, combo_id, frecuencia, dia, hora, empleado_preferido_id, estado, proximo_cobro
+cobros_plan
+plan_id, monto, intento, estado, pasarela_ref, factura_id
+cuentas_empresa
+cliente_id, limite_credito, dias_vencimiento, estado_cuenta
+rendicion_efectivo
+empleado_id, orden_id, monto, estado, rendido_en
+Método
+Ruta
+Descripción
+GET
+/empleado/liquidaciones · /empleado/liquidaciones/{id}
+Historial y detalle
+POST
+/empleado/adelantos
+Solicitar adelanto
+POST
+/empleado/liquidaciones/items/{id}/disputa
+Reclamar un ítem
+PUT
+/empleado/medio-cobro
+Cambiar medio de cobro con código
+GET
+/admin/liquidaciones?periodo=
+Lista y alertas
+POST
+/admin/liquidaciones/{id}/aprobar · /admin/liquidaciones/aprobar-lote
+Aprobación
+GET
+/admin/liquidaciones/archivo-bancario?periodo=
+Exportación para transferencias
+POST
+/cliente/planes · PATCH /cliente/planes/{id}
+Crear, pausar, cambiar o dar de baja
+GET
+/cliente/cobros
+Próximos cobros y estado de cuenta
+27. Mejoras de usabilidad
+Cada mejora es un requisito verificable. Las marcadas con E entran al primer lanzamiento.
+27.1 Cliente
+Mejora
+Cómo funciona
+Prioridad
+Cotizar sin cuenta
+El cotizador de la web muestra el precio antes de pedir datos; la cuenta se crea al continuar y conserva la selección
+E
+«Repetir lo de siempre»
+Un toque reserva el último servicio con la misma dirección, elementos y empleado
+E
+Autoguardado
+Cada paso del asistente se guarda como borrador; se puede retomar desde otro dispositivo
+E
+Precio transparente
+Botón «¿Por qué este precio?» que despliega horas, elementos, recargos y descuentos
+E
+Sugerencias que ahorran
+«Agrega la heladera y ahorras Gs. X con el combo Hogar Express»; duración recomendada según el historial
+I
+Calendario visual
+Vista semanal con arrastrar y soltar para reprogramar y colores por estado
+I
+Pago en un toque
+Tarjeta guardada, billeteras del teléfono y confirmación biométrica
+E
+Lista previa al servicio
+Recordatorio con «guarda objetos de valor», «avisa a la portería», «inmoviliza a la mascota»
+I
+Estado en lenguaje claro
+«Ana está a 8 minutos» en vez de «EN_CAMINO»; tarjeta fija en la pantalla de inicio
+E
+Compartir por WhatsApp
+Resumen de la reserva y enlace de seguimiento listos para enviar
+I
+Avisos útiles y sin exceso
+Notificaciones agrupadas, horario de silencio y elección de canal por tipo de aviso
+E
+Deshacer
+Cancelar o quitar un elemento permite deshacer durante 10 segundos; el costo se muestra antes de confirmar
+I
+Búsqueda en el historial
+Por fecha, dirección, empleado o monto
+D
+Ayuda contextual
+El botón Ayuda ya sabe en qué pantalla y orden está el cliente
+E
+Pistas de primera vez
+Guías de una sola vez que se pueden saltar y volver a ver
+I
+27.2 Empleado
+Mejora
+Cómo funciona
+Prioridad
+Modo a una mano
+Botones grandes abajo, textos legibles al sol y alto contraste
+E
+Un solo botón por paso
+La acción principal cambia sola: «Voy en camino», «Llegué», «Empezar», «Terminar»
+E
+Resumen del día
+Cada mañana: servicios, ruta en el mapa, insumos a llevar y hora de salida recomendada con tráfico
+E
+Aceptar deslizando
+Las ofertas llegan con sonido y vibración y se aceptan con un deslizamiento
+E
+Pantalla siempre activa
+Se evita el bloqueo de pantalla durante la jornada (Screen Wake Lock)
+I
+Dictado por voz
+Notas del servicio e incidencias por voz
+I
+Guía visual de tareas
+Foto de ejemplo de cómo debe quedar cada área
+E
+Estado sin conexión visible
+Indicador claro y sincronización automática con aviso de lo pendiente
+E
+Mensajes rápidos
+Plantillas listas para el cliente con un toque
+I
+Ingresos siempre a la vista
+Contador del período y fecha del próximo pago en el inicio
+E
+Metas sanas
+Progreso hacia bonos y niveles sin presión de ranking público
+I
+27.3 Administrador
+Mejora
+Cómo funciona
+Prioridad
+Búsqueda universal
+Atajo Ctrl+K para buscar cliente, empleado, orden o factura
+E
+Cola con prioridades visibles
+Colores por urgencia, temporizadores de respuesta y asignación sugerida en un clic
+E
+Acciones masivas
+Asignar, aprobar liquidaciones, enviar mensajes y cambiar estados en lote
+E
+Vistas y filtros guardados
+Cada administrador guarda sus tableros y filtros
+I
+Ver como…
+Ver la pantalla de un cliente o empleado para dar soporte, con registro en la auditoría y sin poder modificar sin aviso
+I
+Alertas accionables
+Cada alerta trae el botón para resolverla (reasignar, llamar, aprobar)
+E
+Deshacer y confirmaciones
+Confirmación solo en acciones destructivas; el resto se puede deshacer
+I
+Tablero personalizable
+Tarjetas de KPIs que se reordenan y se ocultan
+D
+Atajos de teclado
+Para asignar, abrir mapa en vivo y cambiar de cola
+I
+27.4 Transversales
+Mejora
+Cómo funciona
+Prioridad
+Rapidez percibida
+Esqueletos de carga, actualizaciones optimistas con reversión si falla y carga diferida
+E
+Errores que ayudan
+Mensajes humanos con la acción siguiente («No pudimos cobrar tu tarjeta, prueba con otra o paga por transferencia»)
+E
+Validación en línea
+Se valida mientras se escribe, sin borrar lo ingresado
+E
+Tolerancia a fallos
+Reintentos automáticos, operaciones idempotentes y recuperación de borradores
+E
+Accesibilidad
+WCAG 2.2 AA, tamaño de texto ajustable, contraste, lector de pantalla, navegación por teclado y objetivos táctiles de 44 px
+E
+Idiomas
+Español y guaraní, con inglés opcional; textos editables sin tocar el código
+I
+Modo ahorro de datos
+Imágenes comprimidas y sin video para conexiones lentas
+I
+Sistema de diseño
+Tokens de color, tipografía y espaciado compartidos entre las tres zonas, con modo claro y oscuro
+E
+Estados vacíos útiles
+Cada lista vacía propone una acción concreta
+E
+Texto claro
+Frases cortas, sin tecnicismos, con tono cercano y consistente
+E
+27.5 Cómo se mide la usabilidad
+Métrica
+Meta
+Tiempo del segundo pedido
+< 90 s
+Abandono del asistente por paso
+< 15 % en cada paso
+Conversión de cotizador a registro
+> 25 %
+Tasa de errores de formulario
+< 5 % de envíos
+Tareas completadas sin ayuda (pruebas con 5 personas por rol, cada trimestre)
+> 90 %
+Satisfacción del cliente (CSAT) tras el servicio
+≥ 4,6 de 5
+Satisfacción del empleado con la app (encuesta trimestral)
+≥ 4,3 de 5
+Tickets de soporte por cada 100 servicios
+< 8
+Las pruebas de usabilidad se repiten ante cada cambio grande de flujo, con grabaciones de pantalla (con consentimiento) y mapas de calor en el sitio público.
+Parte 2: Mejoras avanzadas y de segunda etapa
+La Parte 1 define el producto base. Esta parte reúne las mejoras que aumentan ingresos, calidad, seguridad y facilidad de uso una vez que la operación está en marcha. La sección 35 las ordena por impacto y esfuerzo para decidir qué construir primero.
+28. Crecimiento, fidelización y nuevos ingresos
+28.1 Programa de niveles para clientes
+Nivel
+Requisito (últimos 12 meses)
+Beneficios
+Base
+Registro
+Acceso a combos y ofertas generales
+Plata
+3 a 9 servicios completados
+3 % de descuento y cancelación sin cargo hasta 6 h antes
+Oro
+10 a 24 servicios
+5 % de descuento, prioridad de agenda y soporte prioritario
+Platino
+25 o más servicios
+8 % de descuento, cancelación sin cargo hasta 2 h antes y empleado favorito garantizado
+Todos los porcentajes y umbrales son parámetros. La suma de beneficios nunca puede bajar el margen de la orden del mínimo configurado (regla de la sección 21.3).
+28.2 Nuevas fuentes de ingreso
+Fuente
+Cómo funciona
+Modelo de ingreso
+Tarjeta de regalo
+El cliente compra saldo para otra persona, con mensaje y vencimiento a 12 meses
+Cobro anticipado; parte de los saldos no canjeados
+Membresía «Club»
+Cuota mensual con traslado sin cargo, prioridad de agenda y descuento fijo
+Ingreso recurrente predecible
+Servicios adicionales
+Tapizados, alfombras, ventanas altas, organización de armarios, planchado, desinfección
+Tarifa por elemento o por hora
+Alianzas con terceros
+Control de plagas, jardinería, lavandería, mantenimiento, ofrecidos dentro de la app
+Comisión del 15 % al 25 %
+Alquileres temporarios
+Se sincroniza el calendario de reservas del anfitrión (iCal) y se agenda una limpieza de cambio tras cada salida
+Plan recurrente por propiedad
+Inmobiliarias y consorcios
+Limpieza de áreas comunes y de inmuebles en venta o alquiler, con contrato
+Tarifa corporativa mensual
+Insumos
+Kits de limpieza y productos para el hogar
+Margen de venta
+Eventos
+Limpieza previa y posterior a fiestas y reuniones
+Tarifa fija por evento
+28.3 Referidos, embajadores y reseñas
+• Referidos escalonados: crédito creciente por cada invitado que completa su primer servicio (por ejemplo, Gs. 20.000 el primero, Gs. 30.000 el segundo y Gs. 50.000 del tercero en adelante), con tope mensual.
+• Embajadores: clientes con enlace y código propio que reciben un porcentaje (ej. 5 %) de las primeras 3 órdenes de cada persona que traen.
+• Reseñas verificadas: solo de servicios completados; cupón por reseña con foto aprobada.
+• Invitación a reseña pública: tras una calificación de 5 estrellas se ofrece publicarla en Google; nunca se condiciona un beneficio a que la reseña sea positiva.
+• Unicidad: una persona, un teléfono, una dirección y un dispositivo solo pueden activar una vez el beneficio de primera compra.
+28.4 Retención
+Situación
+Acción automática
+21 días sin pedir (clientes recurrentes)
+Recordatorio con «Repetir lo de siempre»
+45 días sin pedir
+Cupón de reactivación
+Cliente intenta cancelar su plan
+Ofrecer pausar 30 días o cambiar la frecuencia antes de la baja
+Baja del plan
+Encuesta de una pregunta y cupón de regreso a los 60 días
+Calificación ≤ 3
+Contacto de un supervisor en menos de 2 h y re-limpieza sin costo
+Primer servicio completado
+Invitación a crear un plan con descuento
+29. Calidad, operación y logística
+29.1 Control de calidad
+• Inspecciones: un supervisor revisa por muestreo (por defecto 5 % de los servicios, y el 100 % de los primeros 3 servicios de cada empleado nuevo) mediante visita o videollamada.
+• Auditoría fotográfica: revisión de una muestra de fotos antes/después con un puntaje interno de 1 a 5 por servicio.
+• Doble calificación: se compara la nota del cliente con la interna; una brecha grande dispara revisión.
+• Plan de mejora: un empleado con calificación por debajo de 4,3 recibe capacitación obligatoria y seguimiento por 30 días antes de cualquier sanción.
+• Checklists versionados: cada cambio del checklist queda con versión y fecha, y cada orden guarda la versión con la que se ejecutó.
+29.2 Rol de supervisor
+Rol
+Permisos
+Supervisor de zona
+Ve el mapa de su zona, atiende incidencias, aprueba cambios de turno, realiza inspecciones, califica la calidad y propone sanciones (las aprueba un administrador)
+29.3 Capacidad y continuidad del servicio
+• Pronóstico de demanda por zona, día y franja, a partir del histórico, feriados y campañas activas.
+• Reserva de capacidad: un colchón (por defecto 10 %) que no se vende para absorber imprevistos y emergencias.
+• Bolsa de suplentes por zona, con pago por disponibilidad, para cubrir cancelaciones de último momento.
+• Reasignación en cascada: si un empleado cancela con menos de 12 h, el sistema ofrece el servicio con un bono de urgencia (por defecto +15 %) primero a suplentes, luego a los demás empleados por puntaje.
+• Aviso temprano al cliente: ante cualquier cambio de empleado o demora, el cliente recibe la novedad y la opción de reprogramar sin costo.
+29.4 Rutas y tiempos
+• Paquetes de ruta: servicios consecutivos y cercanos se ofrecen juntos con un bono por completar la ruta.
+• Tiempo muerto máximo entre servicios del mismo día (por defecto 45 min); el asignador lo penaliza.
+• Ruta del día optimizada con tráfico, recalculada si cambia una orden.
+• Hora de salida recomendada calculada con el tiempo de viaje y un margen de 10 min.
+29.5 Insumos e inventario
+• Kits estandarizados por tipo de limpieza y tipo de hogar, con consumo estimado por servicio.
+• Costo de insumos por orden: entra al cálculo del margen real.
+• Stock mínimo y alertas de reposición, proveedores y registro de mermas.
+• Entrega y devolución de kits y herramientas con firma en la app.
+29.6 Gestión de incidentes
+Severidad
+Ejemplo
+Respuesta máxima
+Responsable
+S1 Seguridad
+SOS, accidente, acoso
+5 min
+Administrador de turno y supervisor
+S2 Daño o pérdida
+Objeto roto, reclamo de robo
+1 h
+Supervisor
+S3 Calidad
+Servicio incompleto, queja
+24 h
+Soporte
+S4 Consulta
+Dudas de cobro o agenda
+48 h
+Soporte
+Cada incidente guarda evidencias (fotos, ruta, chat, registros de check-in), cronología, resolución, compensación y una revisión posterior para S1 y S2 que alimenta mejoras de proceso.
+30. Seguridad, antifraude y continuidad
+30.1 Identidad y acceso
+• Verificación de identidad del empleado con selfie y foto de la cédula (con prueba de vida) en el alta y cada 90 días.
+• Verificación facial aleatoria al check-in (por ejemplo 1 de cada 10) para detectar cuentas prestadas; con consentimiento expreso y sin conservar la imagen más allá de la verificación.
+• Doble factor obligatorio para administradores y supervisores (TOTP), y opcional para clientes y empleados.
+• Passkeys (WebAuthn) como alternativa a la contraseña después del primer ingreso.
+• Dispositivos vinculados del empleado: aviso y revisión si la cuenta aparece en un dispositivo nuevo.
+• Sesiones con vencimiento por inactividad y cierre remoto.
+30.2 Antifraude
+Riesgo
+Señal
+Respuesta
+Cuenta de empleado compartida
+Rostro distinto en la verificación; varias cuentas en un mismo dispositivo
+Bloqueo preventivo y revisión
+Ubicación falsificada
+GPS simulado, saltos imposibles, baja precisión sostenida
+Marca de riesgo, foto con sello de tiempo obligatoria y revisión
+Inflado de horas
+Horas por encima de lo estimado sin aprobación del cliente
+No se paga el extra sin aprobación; alerta al administrador
+Fraude de pago
+Contracargos, muchas tarjetas en una cuenta, intentos repetidos
+3-D Secure, límites por cuenta y bloqueo
+Abuso de cupones o referidos
+Misma dirección, teléfono o dispositivo en varias cuentas
+Reglas de unicidad y revocación del beneficio
+Evasión de la plataforma
+Cliente y empleado coordinan fuera de la app
+Datos de contacto enmascarados, cláusula en los acuerdos y detección de pares que repiten sin pasar por la app
+Reseñas falsas
+Calificación sin servicio completado
+Solo clientes verificados con orden completada
+Robo de cuenta
+Inicio de sesión desde un lugar inusual
+Código adicional por WhatsApp o SMS
+30.3 Protección de datos
+• Minimización: solo se pide y guarda lo necesario para cada función.
+• Cifrado en tránsito (TLS 1.2 o superior) y en reposo; campos sensibles (cédula, ubicación exacta, instrucciones de acceso) cifrados también a nivel de aplicación.
+• Retención configurable: trayectos de GPS 90 días, fotos de servicios 12 meses, chats 12 meses, registros de auditoría 5 años (valores iniciales a validar con asesoría legal).
+• Fotos con privacidad: difuminado automático de rostros y documentos visibles en fotos de antes/después.
+• Registro de accesos a datos personales por parte del personal, con motivo.
+• Anonimización de los datos al dar de baja una cuenta, conservando lo exigido por normativa fiscal.
+30.4 Continuidad y recuperación
+Elemento
+Objetivo
+Copias de seguridad de PostgreSQL
+Diarias completas más archivado continuo (WAL) para restaurar a un punto exacto
+Pérdida máxima de datos (RPO)
+≤ 15 minutos
+Tiempo de recuperación (RTO)
+≤ 2 horas
+Pruebas de restauración
+Mensuales, con registro del resultado
+Disponibilidad objetivo
+99,5 % mensual al lanzamiento
+Monitoreo
+Estado de servicios, errores (Sentry), latencia y alertas al responsable de guardia
+Plan sin mapas
+Si falla el servicio de mapas, se muestra la dirección escrita y el botón para abrir la navegación externa
+30.5 Cumplimiento y seguros
+• Términos y condiciones, política de privacidad y de cookies versionadas, con aceptación registrada.
+• Contratos o acuerdos de servicio para empleados según su modalidad de vinculación.
+• Seguro de responsabilidad civil por daños a terceros y cobertura de accidentes personales para los empleados.
+• Cumplimiento tributario y de facturación electrónica por medio de SIFEN.
+• Revisión legal local de todos los textos, plazos de retención y políticas antes del lanzamiento.
+31. Inteligencia y automatización
+31.1 Capacidades
+Capacidad
+Qué hace
+Beneficio
+Asignación inteligente
+Ajusta el puntaje con aceptación, puntualidad y calificación por tipo de cliente y de servicio
+Menos reasignaciones y mejor calidad
+Presupuesto por fotos
+El cliente sube fotos y el sistema propone horas y elementos; el cliente confirma
+Presupuestos más exactos y menos disputas por horas
+Precio dinámico con límites
+Sube o baja el valor según demanda y capacidad entre un piso y un techo aprobados
+Mejor ocupación y margen
+Predicción de cancelación y no-show
+Estima el riesgo por historial y franja
+Recordatorios extra o anticipo mayor en casos de riesgo
+Asistente de WhatsApp
+Reservar, reprogramar, consultar estado, pedir factura y resolver preguntas frecuentes, con traspaso a una persona
+Atención 24 h y menos carga de soporte
+Resumen posterior al servicio
+Mensaje con lo realizado, fotos y próximos pasos
+Confianza y recompra
+Recomendación de combos
+Propone el combo que más conviene según el historial
+Mayor valor por orden
+Detección de anomalías
+Señala horas, pagos o liquidaciones fuera de lo habitual
+Control de fraude y errores
+Previsión de personal
+Anticipa cuántos empleados se necesitan por zona y semana
+Reclutamiento a tiempo
+Difuminado de fotos
+Oculta rostros y documentos en las fotos subidas
+Privacidad por defecto
+31.2 Reglas de uso
+1. Una persona decide lo importante: la automatización recomienda, pero sanciones, bloqueos y pagos disputados los resuelve una persona con la evidencia a la vista.
+2. Explicable: cada recomendación guarda los datos que la originaron y se puede mostrar en palabras simples.
+3. Sin datos sensibles (salud, religión, origen, orientación) como variables de decisión.
+4. Medible: cada capacidad tiene una métrica de éxito y se revisa cada trimestre; si no mejora el resultado, se apaga.
+5. Con salida de emergencia: todo asistente automático permite hablar con una persona en un toque.
+6. Transparencia con el cliente: se indica cuándo un presupuesto fue estimado a partir de fotos y se permite corregirlo.
+32. Integraciones y canales
+Integración
+Uso
+Notas
+WhatsApp Business (Cloud API)
+Notificaciones, recordatorios, cobros y asistente de reservas
+Plantillas aprobadas y consentimiento previo (opt-in)
+Calendarios
+Archivo y suscripción iCal (.ics) para cliente y empleado; sincronización opcional con Google Calendar
+Recordatorios con la dirección y el enlace de seguimiento
+iCal de alquileres temporarios
+Importar las reservas de plataformas de alquiler y agendar limpiezas de cambio
+Actualización cada 30 min y aviso si cambia la reserva
+Pasarelas de pago
+Tarjeta con 3-D Secure, billeteras y pagos por QR disponibles en el país
+Solo tokens; conciliación automática por referencia
+Transferencias
+Cobro con referencia única y conciliación contra extracto
+Importación de extracto en CSV o API del banco
+SIFEN
+Factura electrónica y notas de crédito
+Módulo existente del negocio, por HTTP
+Contabilidad o ERP
+Exportación de asientos, ingresos, egresos y liquidaciones
+CSV o API con códigos de cuenta configurables
+API pública y webhooks para empresas
+Crear órdenes, consultar estados y facturas, recibir eventos
+Claves por empresa, límite de uso y firma HMAC en cada webhook
+Google Business Profile
+Invitar a publicar reseñas y mostrar la calificación en la web
+Sin condicionar beneficios a la nota
+Analítica de marketing
+GA4, píxel de Meta y API de conversiones
+Con aviso y consentimiento de cookies
+Correo y SMS transaccional
+Códigos, recibos y avisos críticos
+Dominio verificado (SPF, DKIM, DMARC)
+Mesa de ayuda
+Tickets con historial por cliente y empleado
+Opcional, p. ej. Chatwoot
+33. Analítica y panel avanzado del administrador
+33.1 Reportes que habilitan decisiones
+Reporte
+Qué muestra
+Decisión que habilita
+Rentabilidad
+Margen por zona, tipo de servicio, combo, empleado y canal
+Qué vender, dónde reforzar y qué precio corregir
+Embudo de conversión
+Visita → cotización → registro → solicitud → pago
+Dónde se pierden clientes
+Cohortes de retención
+Porcentaje de clientes que vuelven a los 30, 60 y 90 días
+Calidad de la fidelización
+LTV y CAC por canal
+Valor de vida del cliente y costo de adquirirlo
+Dónde invertir en marketing
+Demanda contra capacidad
+Mapa de calor por zona y franja
+Reclutamiento y precios por franja
+Calidad
+Calificaciones, reclamos, re-limpiezas y puntaje interno
+Capacitación y sanciones
+Puntualidad
+Check-in a tiempo, demoras y causas
+Ajuste de rutas y de tiempos de salida
+Cancelaciones
+Motivo, momento y costo
+Política de cancelación y recordatorios
+Efectividad de ofertas
+Usos, descuento otorgado, ingreso y margen por oferta
+Cuáles repetir y cuáles retirar
+Costo de mano de obra
+Horas pagadas contra horas facturadas, por período
+Eficiencia operativa
+Pronóstico semanal
+Servicios esperados, ingresos y personal necesario
+Planificación
+33.2 Centro de control del día
+• Tablero en vivo con servicios en curso, atrasados, sin asignar y emergencias.
+• Alertas priorizadas con botón de acción (reasignar, llamar, aprobar).
+• Indicadores del día frente al objetivo: servicios, ingresos, margen estimado, puntualidad y calificación.
+• Alertas automáticas de negocio: margen del día bajo el mínimo, capacidad menor al 10 % para mañana, caída de conversión o aumento de cancelaciones.
+33.3 Reglas de los reportes
+• Filtros por fecha, zona, servicio, empleado y canal, con vistas guardadas.
+• Exportación a Excel y PDF, y envío programado por correo (diario, semanal y mensual).
+• Permisos por rol: finanzas y datos personales solo para quien los necesita, con registro de cada exportación.
+• Cada cifra enlaza al detalle de las órdenes que la componen.
+34. Experiencia avanzada
+Mejora
+Cómo funciona
+Para quién
+Accesos directos de la app
+Desde el icono: «Solicitar», «Mi servicio actual» y «Ayuda»
+Cliente y empleado
+Notificaciones con acciones
+Aprobar horas extra, calificar con un toque o responder «Estoy en casa» sin abrir la app
+Cliente
+Reserva en tres toques desde WhatsApp
+Botones de respuesta para confirmar la repetición del último servicio
+Cliente
+Cuenta del hogar
+Titular y miembros con permiso de pedir, ver y aprobar extras
+Cliente
+Pago dividido
+Repartir el costo entre varias personas con enlaces de pago individuales
+Cliente
+Precio por franja a la vista
+El selector de horario muestra cuánto cuesta cada franja y cuál es la más económica
+Cliente
+Alternativas antes de cancelar
+Ofrecer reprogramar con descuento antes de confirmar la cancelación
+Cliente
+Códigos de acceso seguros
+Guardar claves de portería o portón cifradas, visibles al empleado solo durante la ventana del servicio
+Cliente y empleado
+Tiempo de respuesta visible
+«Te respondemos en unos 10 minutos» en el chat de soporte
+Todos
+Modo de viaje
+Mientras el empleado se desplaza, la pantalla muestra solo el botón principal y la navegación, con avisos por voz
+Empleado
+Incorporación como juego
+Primeras jornadas con metas pequeñas y recompensas, sin comparaciones públicas
+Empleado
+Tutoriales de 30 segundos
+Video corto en cada flujo nuevo, con opción de saltarlo
+Todos
+Personalización
+Tamaño de texto, tema, idioma y densidad (cómoda o compacta en el panel)
+Todos
+Soporte con adjuntos
+Fotos y capturas en el ticket y seguimiento del caso con estado visible
+Todos
+35. Priorización y hoja de ruta de la Parte 2
+35.1 Priorización
+Mejora
+Impacto
+Esfuerzo
+Fase
+Niveles de clientes y referidos escalonados
+Alto
+Medio
+5
+Reasignación en cascada y bolsa de suplentes
+Alto
+Medio
+5
+Control de calidad por muestreo y rol de supervisor
+Alto
+Bajo
+5
+Verificación facial y antifraude básico
+Alto
+Medio
+5
+Copias con restauración a un punto y monitoreo
+Alto
+Bajo
+5
+Asistente de WhatsApp para reservas
+Alto
+Medio
+6
+Alquileres temporarios con iCal
+Alto
+Medio
+6
+Reportes de rentabilidad, cohortes y embudo
+Alto
+Medio
+6
+Paquetes de ruta y rutas optimizadas
+Medio
+Medio
+6
+Membresía Club y tarjetas de regalo
+Medio
+Medio
+6
+Precio dinámico con límites
+Alto
+Alto
+7
+Presupuesto por fotos
+Medio
+Alto
+7
+Predicción de cancelaciones y previsión de personal
+Medio
+Alto
+7
+API pública y webhooks para empresas
+Medio
+Medio
+7
+Alianzas con terceros y venta de insumos
+Medio
+Alto
+7
+35.2 Fases
+Fase
+Objetivo
+Resultado esperado
+5. Calidad y confianza
+Reducir incidentes, reasignaciones y riesgo de fraude
+Calificación ≥ 4,6, puntualidad > 95 %, cero pérdida de datos en pruebas de restauración
+6. Crecimiento
+Aumentar recurrencia y canales de venta
+Recurrencia a 60 días > 40 %, 30 % de las reservas por WhatsApp o «repetir»
+7. Optimización
+Mejorar el margen y automatizar
+Margen bruto ≥ 38 %, ocupación ≥ 80 %
+35.3 Riesgos de la Parte 2
+Riesgo
+Mitigación
+Descuentos y niveles que erosionan el margen
+Piso de margen validado por el sistema y revisión mensual de rendimiento
+Verificación facial percibida como invasiva
+Consentimiento expreso, sin conservar la imagen, alternativa manual y explicación clara
+Automatización que comete errores con consecuencias
+Una persona decide sanciones y pagos disputados; métricas y apagado si no mejora
+Costos crecientes de mapas, mensajería y almacenamiento
+Presupuestos y alertas por consumo, caché y envíos adaptativos
+Demasiadas funciones a la vez
+Respetar las fases y medir cada mejora antes de agregar la siguiente
+Cumplimiento legal y laboral
+Revisión con asesoría local antes de cada fase
+Parte 3: Multimoneda y requerimientos ampliados
+Esta parte agrega la operación en varias monedas, la expansión a más países y sucursales, el calendario operativo y una lista numerada de requisitos funcionales con criterios de aceptación verificables.
+36. Multimoneda
+36.1 Principios
+1. Una moneda base (por defecto guaraní, PYG) en la que se registran la contabilidad, los márgenes y los reportes.
+2. Monedas habilitadas configurables (por ejemplo PYG, USD, BRL, ARS, EUR). El cliente ve y paga en la moneda que elige, siempre que el medio de pago la acepte.
+3. Cada operación guarda cuatro datos: moneda original, monto original, tipo de cambio aplicado y monto en moneda base. Nunca se recalcula después del pago.
+4. El cliente ve el monto exacto que se le cobrará antes de confirmar, sin sorpresas por conversión.
+5. El margen mínimo (35 %) se evalúa en moneda base, con el tipo de cambio vigente en el momento de la venta.
+36.2 Parámetros
+Parámetro
+Descripción
+Ejemplo
+Moneda base
+Moneda de la contabilidad y los reportes
+PYG
+Monedas habilitadas
+Lista de monedas que se pueden mostrar y cobrar
+PYG, USD, BRL
+Decimales por moneda
+Cantidad de decimales al mostrar y cobrar
+PYG 0, USD 2, BRL 2
+Redondeo por moneda
+Múltiplo al que se redondea el precio final hacia arriba
+PYG 500, USD 0,50
+Fuente de cotización
+Carga manual o proveedor configurable, con una fuente de respaldo
+Proveedor principal más manual
+Frecuencia de actualización
+Cada cuánto se actualiza la cotización
+Cada hora
+Margen cambiario (spread)
+Porcentaje que protege de la volatilidad y de la comisión de conversión
+1,5 %
+Vigencia del presupuesto
+Minutos que se congela la cotización al cotizar
+30 min
+Moneda por medio de pago
+Monedas aceptadas por cada pasarela, billetera o cuenta
+Tarjeta: PYG y USD; transferencia: PYG
+Moneda de liquidación del empleado
+Moneda en que cobra cada empleado
+PYG
+Tolerancia sin cotización
+Horas que se puede usar la última cotización válida si la fuente falla
+6 h
+Reajuste de planes
+Variación acumulada que dispara un reajuste con aviso
+5 %, aviso de 15 días
+36.3 Modelo de precios
+Hay dos formas, que pueden convivir:
+• Lista base con conversión: las tarifas se cargan en moneda base y se convierten al momento de cotizar.
+• Listas de precios por moneda: una tarifa explícita en cada moneda (por ejemplo, USD 40) que reemplaza a la conversión. Sirve para precios redondos y comerciales. Si existe, gana siempre sobre la conversión.
+si existe precio en lista[moneda]:  precio_mon = lista[moneda]
+sino:                              tc_aplicado = tc_ref × (1 − spread)
+                                   precio_mon  = redondear_arriba(precio_base / tc_aplicado, múltiplo[moneda])
+monto_en_base = precio_mon × tc_ref   (para reportes y margen)
+Ejemplo ilustrativo (no son cotizaciones reales): servicio de Gs. 300.000, tc_ref 7.500 Gs. por USD, spread 1,5 %: tc_aplicado 7.387,5; 300.000 / 7.387,5 = 40,61; con redondeo al 0,50 superior, el cliente ve USD 41,00.
+36.4 Cotización, congelamiento y reajustes
+• Al generar el presupuesto, la cotización queda congelada durante la vigencia configurada y se muestra el tiempo restante.
+• Si vence antes del pago, se recalcula y se avisa del cambio antes de cobrar.
+• Planes recurrentes: el precio queda fijado en la moneda del contrato; si la variación acumulada supera el umbral, se reajusta con aviso previo y el cliente puede aceptar, cambiar de moneda o dar de baja.
+• Empresas: pueden contratar con tarifa fija en una moneda durante el período del contrato.
+• Los descuentos, cupones y puntos se calculan en moneda base y se convierten; los cupones de monto fijo pueden definirse por moneda.
+36.5 Cobros, reembolsos y propinas
+• El cliente elige la moneda de visualización y, si el medio lo admite, la de pago. Si el medio solo acepta una moneda, el sistema convierte y muestra el monto final.
+• El anticipo y el saldo se cobran en la misma moneda de la orden.
+• Reembolsos: en la moneda y por el monto cobrado originalmente; la diferencia cambiaria la absorbe la empresa y queda registrada.
+• Propinas: se acreditan al empleado en su moneda de liquidación, convertidas al tipo de cambio del día.
+• Saldo a favor y puntos: se guardan en moneda base y se muestran convertidos.
+• Una orden no cambia de moneda después del primer pago.
+36.6 Facturación electrónica
+• Cuando la operación es en moneda extranjera, la factura electrónica debe indicar la moneda y el tipo de cambio. El esquema de SIFEN contempla estos datos; la forma exacta de informarlos y de calcular el IVA debe validarse con el módulo SIFEN existente y la asesoría tributaria.
+• El IVA incluido (10 %) se calcula por componente y se redondea según la moneda.
+• Notas de crédito en la misma moneda de la factura original.
+36.7 Empleados y liquidaciones
+• Por defecto el empleado cobra en moneda base. Puede optar por otra moneda habilitada; el monto se convierte al tipo de cambio de cierre del período y queda registrado.
+• El costo de mano de obra de una orden en moneda extranjera se calcula en moneda base; el margen se evalúa con el tipo de cambio de la venta.
+• La liquidación muestra la moneda de cada ítem y el tipo de cambio utilizado.
+36.8 Contabilidad y reportes
+• Cada asiento de la planilla de ingresos guarda monto original, moneda, tipo de cambio y monto en moneda base.
+• Diferencia de cambio realizada: se registra al conciliar el cobro contra el extracto (diferencia entre el tipo de cambio de la venta y el de la acreditación).
+• Cuentas bancarias y de pasarela por moneda, con conciliación separada.
+• Los reportes se muestran en moneda base con una opción para ver otra moneda, usando el tipo de cambio de cada operación.
+• Reporte de exposición: saldos pendientes de cobro y de pago por moneda.
+36.9 Experiencia del usuario
+• Selector de moneda visible en el encabezado del sitio y de la app; se recuerda en la cuenta y se detecta por país en la primera visita.
+• Formato local por moneda: Gs. 1.250.000, USD 25,00, R$ 130,00, con separadores correctos.
+• Equivalentes con el signo ≈ y la hora de la cotización («≈ USD 41,00 · cotización de las 10:00»).
+• Temporizador de la cotización congelada en el presupuesto y aviso claro si cambia.
+• Ofertas, combos y cupones se muestran en la moneda elegida.
+• Comprobantes y facturas en la moneda de la operación, con el equivalente en moneda base.
+36.10 Datos y endpoints
+Entidad
+Campos clave
+monedas
+codigo (PYG, USD…), nombre, simbolo, decimales, multiplo_redondeo, habilitada, es_base
+tipos_cambio
+moneda_origen, moneda_destino, tasa_ref, spread, fuente, vigente_desde, vigente_hasta
+listas_precio
+id, moneda, nombre, vigente_desde, vigente_hasta, activa
+listas_precio_items
+lista_id, tipo (limpieza, elemento, combo), item_id, precio
+cuentas_bancarias
+id, moneda, banco, referencia_enmascarada, uso (cobros, pagos)
+diferencias_cambio
+orden_id, pago_id, tc_venta, tc_acreditacion, diferencia_base
+ordenes (campos nuevos)
+moneda, tipo_cambio_aplicado, total_moneda, total_base, cotizacion_vence_en
+pagos (campos nuevos)
+moneda, monto_original, tipo_cambio, monto_base
+clientes (campos nuevos)
+moneda_preferida
+empleados (campos nuevos)
+moneda_liquidacion
+Método
+Ruta
+Descripción
+GET
+/publico/monedas
+Monedas habilitadas, decimales y formato
+GET
+/publico/cotizacion?moneda=
+Cotización vigente y hora
+POST
+/presupuesto
+Acepta moneda y devuelve montos en esa moneda, con tipo de cambio y vencimiento
+PUT
+/cliente/moneda
+Cambia la moneda preferida
+GET/POST
+/admin/tipos-cambio
+Carga manual y consulta con historial
+CRUD
+/admin/listas-precio
+Listas de precios por moneda
+GET
+/admin/reportes/exposicion-cambiaria
+Saldos por moneda y diferencias de cambio
+36.11 Riesgos específicos
+Riesgo
+Mitigación
+Volatilidad cambiaria entre la venta y el cobro
+Spread configurable, cotización congelada con vigencia corta y reajuste de planes
+Fuente de cotización caída o errónea
+Fuente de respaldo, límite de variación por actualización (por ejemplo, 3 %) con aprobación manual y tolerancia máxima en horas
+Cobros en una moneda con cuenta que no la recibe
+Cada medio de pago declara sus monedas y el sistema solo las ofrece si hay cuenta destino
+Errores de redondeo
+Reglas por moneda, cálculo con aritmética decimal exacta (nunca punto flotante) y pruebas con casos límite
+Diferencias en reembolsos
+Reembolso en la moneda original y registro de la diferencia absorbida
+37. Expansión multipaís y documentos de identidad
+El acceso del cliente se basa en el número de documento. Para operar en más de un país, el documento pasa a tener un tipo y cada país define sus reglas.
+Elemento
+Regla
+Tipo de documento
+Cédula de identidad, RUC, pasaporte, DNI, CPF u otros, según el país; la lista es configurable
+Login
+País (o detección automática) + tipo de documento + número; la unicidad es por país, tipo y número
+Contraseña inicial
+En altas hechas por el administrador, el número de documento, con el mismo modal obligatorio, caducidad y bloqueo de la sección 4
+Validadores
+Un validador de formato por tipo de documento, cargable por configuración
+Teléfonos
+Formato internacional (E.164) con selector de país y código
+Idiomas
+Español, portugués de Brasil, guaraní e inglés, con textos editables
+Impuestos
+Tasa y régimen por país y por tipo de servicio (en Paraguay, IVA 10 % incluido en el precio)
+Facturación
+Un proveedor de documento fiscal por país (SIFEN en Paraguay)
+Pagos
+Pasarelas y medios por país y por moneda
+Zonas y mapas
+Zonas de cobertura por país; autocompletado de direcciones restringido a los países habilitados
+Zona horaria y feriados
+Por sucursal y por país
+Datos personales
+Reglas de retención y consentimiento por país, validadas con asesoría local
+38. Multisucursal y franquicias
+Una misma instalación puede atender varias sucursales o franquicias, cada una con su operación propia y reportes consolidados para la gerencia general.
+38.1 Qué es propio de cada sucursal
+• País, moneda base opcional, zona horaria, zonas de cobertura y feriados.
+• Empleados, supervisores y administradores de sucursal.
+• Listas de precios, combos, ofertas y recargos (heredan los generales y pueden sobrescribirlos).
+• Cuentas bancarias, pasarelas y datos fiscales (timbrado, establecimiento y puntos de expedición).
+• Insumos e inventario.
+38.2 Roles
+Rol
+Alcance
+Gerencia general
+Todas las sucursales, parámetros globales y reportes consolidados
+Administrador de sucursal
+Solo su sucursal: cola, asignación, finanzas locales y parámetros permitidos
+Supervisor de zona
+Zonas asignadas dentro de una sucursal
+Contador
+Lectura y exportación financiera de las sucursales que se le asignen
+38.3 Reglas
+1. Herencia de parámetros: cada parámetro tiene un valor global y puede tener un valor propio por sucursal; el sistema muestra cuál se está aplicando.
+2. Consolidación: los reportes del grupo se convierten a la moneda del grupo con el tipo de cambio de cada operación.
+3. Regalías o comisión: si hay franquicias, un porcentaje de los ingresos de la sucursal se registra a favor del franquiciante, con liquidación periódica.
+4. Traslado de empleados entre sucursales con historial y sin perder calificación.
+5. Clientes del grupo: una cuenta puede pedir servicios en cualquier sucursal que cubra su dirección; la sucursal se asigna por la zona.
+6. Aislamiento de datos: un administrador de sucursal no ve datos de otra, y cada consulta se filtra por sucursal en el servidor.
+38.4 Datos
+Entidad
+Campos clave
+sucursales
+id, nombre, pais, moneda_base, zona_horaria, estado, porcentaje_regalia
+parametros (ampliada)
+clave, valor, sucursal_id (nulo para global), vigente_desde
+usuarios_sucursales
+usuario_id, sucursal_id, rol
+zonas (ampliada)
+sucursal_id, poligono, traslado
+ordenes (campo nuevo)
+sucursal_id
+39. Calendario operativo, feriados y reglas de reserva
+Elemento
+Detalle
+Valor inicial
+Horario de atención
+Franjas por día y por sucursal
+Lunes a sábado, 07:00 a 19:00
+Duración del turno
+Tamaño mínimo de bloque en la agenda
+30 min
+Anticipación mínima
+Tiempo mínimo entre la reserva y el servicio
+3 h (emergencias exceptuadas)
+Anticipación máxima
+Hasta cuántos días se puede reservar
+90 días
+Tiempo entre servicios
+Margen del empleado para trasladarse y descansar
+Según zona, mínimo 30 min
+Feriados
+Calendario por país y sucursal con recargo automático y opción de cerrar
+Recargo de la sección 3
+Días especiales
+Campañas, cierres por clima, eventos
+Se cargan con fecha y alcance
+Bloqueos de capacidad
+Cupos máximos por franja y zona
+Colchón del 10 %
+Vacaciones del equipo
+Períodos sin asignación con aviso a clientes con plan
+Con 7 días de antelación
+Ausencia del empleado
+Bloqueo y reasignación de sus servicios ya agendados
+Automático
+Recordatorios
+Mensajes previos al servicio
+24 h antes y 1 h antes
+Reprogramación
+Cambios de fecha por el cliente
+Una vez sin costo hasta 6 h antes
+Servicio nocturno
+Reglas y recargo, con empleados habilitados
+Recargo de la sección 3
+40. Requisitos funcionales con criterios de aceptación
+Cada requisito tiene un identificador y un criterio que se puede probar. Sirven como base de las pruebas automáticas y de la aceptación final.
+40.1 Autenticación y acceso (AUT)
+ID
+Requisito
+Criterio de aceptación
+RF-AUT-01
+Alta de cliente por el administrador
+Con una cédula única, se crea el usuario con la cédula como identificador y contraseña inicial cifrada igual a la cédula, debe_cambiar_password = true, y se envía un mensaje de bienvenida sin la contraseña
+RF-AUT-02
+Documento duplicado
+Al repetir un documento, el sistema rechaza el alta con un mensaje claro y ofrece abrir el perfil existente
+RF-AUT-03
+Primer ingreso
+Tras validar las credenciales con debe_cambiar_password = true, solo se muestra el modal; cualquier otra API responde 403 con código PASSWORD_CHANGE_REQUIRED
+RF-AUT-04
+Nueva contraseña
+Mínimo 8 caracteres, una letra, un número y distinta del documento; al guardar se cierran todas las sesiones anteriores
+RF-AUT-05
+Caducidad de la clave inicial
+Pasadas 72 h, el acceso con la clave inicial se rechaza y se indica usar la recuperación con código
+RF-AUT-06
+Bloqueo por intentos
+A los 5 intentos fallidos la cuenta se bloquea 15 min; el mensaje no revela si el documento existe
+RF-AUT-07
+Registro público
+El registro exige código verificado por WhatsApp o SMS y el cliente crea su propia contraseña en el mismo flujo
+RF-AUT-08
+Roles
+Un usuario sin el rol requerido recibe 403 y no descarga el código de esa zona del frontend
+40.2 Solicitud y presupuesto (SOL)
+ID
+Requisito
+Criterio de aceptación
+RF-SOL-01
+Cotizador sin cuenta
+Devuelve el precio en menos de 1 s (percentil 95) en la moneda elegida
+RF-SOL-02
+Horarios disponibles
+Solo se muestran franjas con empleado libre en la zona, sin superposición y respetando la anticipación mínima
+RF-SOL-03
+Cobertura
+Una dirección fuera de las zonas muestra el aviso antes de continuar y ofrece lista de espera
+RF-SOL-04
+Borrador
+Cada paso se guarda; al volver, la solicitud se restaura hasta el último paso completado
+RF-SOL-05
+Cupón inválido
+El mensaje indica el motivo (vencido, agotado, no aplica) sin borrar el presupuesto
+RF-SOL-06
+Piso de margen
+Un descuento que deje el margen bajo el mínimo se recorta automáticamente y se informa al cliente
+RF-SOL-07
+Presupuesto del cliente
+Si el presupuesto máximo es menor al calculado, se proponen ajustes que lo cumplen, detallando qué se pierde
+RF-SOL-08
+Reprogramación
+Una vez por orden sin costo hasta el plazo configurado; después se aplica la política de cancelación
+40.3 Pagos y facturación (PAG)
+ID
+Requisito
+Criterio de aceptación
+RF-PAG-01
+Anticipo
+La solicitud pasa a ENVIADA solo con el anticipo confirmado por la pasarela
+RF-PAG-02
+Idempotencia
+Reintentar un cobro con la misma clave no genera un segundo cobro
+RF-PAG-03
+Cobro de plan fallido
+Se reintenta los días 1, 3 y 5 con aviso en cada intento y el plan se pausa tras el tercer fallo
+RF-PAG-04
+Factura electrónica
+Se emite al confirmar el pago; si SIFEN no responde, queda en cola con reintentos y alerta al administrador
+RF-PAG-05
+Reembolso
+Se devuelve en la moneda y por el monto cobrado, y genera la nota de crédito
+RF-PAG-06
+Tarjetas
+La base de datos solo contiene el token de la pasarela; ningún campo guarda el número completo ni el código de seguridad
+40.4 Jornada del empleado (JOR)
+ID
+Requisito
+Criterio de aceptación
+RF-JOR-01
+Check-in
+Se habilita solo dentro del radio configurado (150 m) o con solicitud manual aprobada
+RF-JOR-02
+PIN o QR
+Si está activo, el servicio no pasa a EN_CURSO sin el código correcto
+RF-JOR-03
+Check-out
+Exige checklist al 100 % y foto posterior cuando el tipo de servicio lo requiere
+RF-JOR-04
+Sin conexión
+Las operaciones se guardan localmente y se envían al reconectar sin duplicados
+RF-JOR-05
+SOS
+El administrador recibe la alerta con ubicación en menos de 10 s
+RF-JOR-06
+Visibilidad de datos
+La dirección exacta y el teléfono del cliente solo se muestran desde 2 h antes hasta 2 h después del servicio
+RF-JOR-07
+Horas extra
+No se pagan ni se cobran sin la aprobación del cliente registrada
+RF-JOR-08
+Seguimiento
+La posición solo se envía en EN_CAMINO y EN_CURSO y se detiene al hacer check-out
+40.5 Liquidaciones (LIQ)
+ID
+Requisito
+Criterio de aceptación
+RF-LIQ-01
+Cierre automático
+El período se cierra una sola vez, a la hora configurada, aunque la tarea se ejecute dos veces
+RF-LIQ-02
+Órdenes incluidas
+Entran solo órdenes pagadas, sin disputa y con checklist completo
+RF-LIQ-03
+Alertas
+Se alerta si el neto es negativo o varía más del 40 % contra el promedio
+RF-LIQ-04
+Medio de cobro nuevo
+No se puede usar para pagar hasta 24 h después de su verificación
+RF-LIQ-05
+Disputas
+Un ítem disputado se excluye del pago y se resuelve en el plazo definido
+RF-LIQ-06
+Comprobante
+Cada pago genera un comprobante descargable con el detalle por ítem
+40.6 Multimoneda (MON)
+ID
+Requisito
+Criterio de aceptación
+RF-MON-01
+Cambio de moneda
+Al cambiar la moneda se recalculan todos los precios visibles sin recargar la página y se conserva la selección
+RF-MON-02
+Cotización congelada
+El presupuesto conserva su cotización durante la vigencia; si vence, se recalcula y se avisa antes del cobro
+RF-MON-03
+Registro del pago
+Cada pago guarda moneda, monto original, tipo de cambio y monto en moneda base
+RF-MON-04
+Formato
+PYG se muestra sin decimales y con separador de miles; USD con 2 decimales
+RF-MON-05
+Moneda de la orden
+Una orden no puede cambiar de moneda después del primer pago
+RF-MON-06
+Reportes
+Los reportes se calculan en moneda base y permiten ver otra moneda con el tipo de cambio de cada operación
+RF-MON-07
+Fuente caída
+Se usa la última cotización válida hasta la tolerancia configurada; luego se bloquean los cobros en moneda extranjera y se alerta al administrador
+RF-MON-08
+Aritmética
+Todos los cálculos monetarios usan decimales exactos; una prueba verifica que ningún total difiere en más de la unidad mínima de la moneda
+RF-MON-09
+Lista de precios
+Si existe precio explícito en la moneda elegida, se usa en lugar de la conversión
+RF-MON-10
+Diferencia de cambio
+Al conciliar un cobro en moneda extranjera se registra la diferencia contra el tipo de cambio de la venta
+40.7 Multisucursal y calendario (SUC)
+ID
+Requisito
+Criterio de aceptación
+RF-SUC-01
+Aislamiento
+Un administrador de sucursal no puede consultar ni modificar datos de otra, incluso manipulando identificadores en la API
+RF-SUC-02
+Herencia
+Si una sucursal no define un parámetro, se aplica el global y la pantalla indica su origen
+RF-SUC-03
+Feriados
+Una reserva en feriado aplica el recargo configurado o se bloquea si la sucursal cierra
+RF-SUC-04
+Anticipación
+No se aceptan reservas con menos anticipación que la mínima, salvo emergencias de empresas con contrato
+RF-SUC-05
+Consolidado
+El reporte del grupo suma sucursales de distintas monedas convertidas al tipo de cambio de cada operación
+40.8 Cómo se usan estos requisitos
+1. Cada criterio se convierte en al menos una prueba automática (unitaria, de API o e2e) con el mismo identificador en su nombre.
+2. El tablero de avance cuenta requisitos aprobados sobre el total por módulo.
+3. Una mejora o cambio de regla agrega o modifica un requisito antes de tocar el código.
+4. La aceptación final exige el 100 % de los requisitos esenciales aprobados y un máximo acordado de pendientes menores.

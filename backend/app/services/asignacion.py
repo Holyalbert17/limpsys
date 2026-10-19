@@ -1,3 +1,4 @@
+import secrets
 from datetime import datetime, time, timedelta
 from decimal import Decimal
 from zoneinfo import ZoneInfo
@@ -9,7 +10,7 @@ from app.domain.geo import centroide
 from app.realtime import hub
 from app.services.estado_orden import cambiar_estado
 from app.services.notificaciones import notificar
-from app.services.parametros import obtener_parametros, pdec, pent
+from app.services.parametros import obtener_parametros, pbool, pdec, pent
 
 TZ = ZoneInfo("America/Asuncion")
 
@@ -81,20 +82,66 @@ async def _bloqueado(conn, empleado_id, fecha, hora_inicio: time, horas: Decimal
     )
 
 
-async def slots(conn, fecha, horas: Decimal, lat=None, lng=None, zona_id=None):
+def validar_reserva(fecha, hora, params, emergencia: bool = False) -> None:
+    inicio = datetime.combine(fecha, hora, tzinfo=TZ)
+    delta = inicio - ahora()
+    if not emergencia and delta < timedelta(hours=pent(params, "anticipacion_min_horas")):
+        raise ApiError(422, "ANTICIPACION", "Hay que reservar con más anticipación.")
+    if delta > timedelta(days=pent(params, "anticipacion_max_dias")):
+        raise ApiError(422, "ANTICIPACION", "No se puede reservar con tanta anticipación.")
+
+
+async def _excede_jornada(conn, empleado_id, fecha, horas: Decimal, params, orden_id=None) -> bool:
+    dia = await conn.fetchval(
+        """
+        SELECT COALESCE(SUM(horas_est), 0)
+        FROM operacion.ordenes
+        WHERE empleado_id = $1 AND fecha = $2
+          AND estado = ANY($3::text[])
+          AND ($4::uuid IS NULL OR id <> $4)
+        """,
+        empleado_id,
+        fecha,
+        list(ESTADOS_OCUPAN_AGENDA),
+        orden_id,
+    )
+    if decimal(dia) + horas > pdec(params, "horas_max_dia"):
+        return True
+    inicio = fecha - timedelta(days=fecha.weekday())
+    semana = await conn.fetchval(
+        """
+        SELECT COALESCE(SUM(horas_est), 0)
+        FROM operacion.ordenes
+        WHERE empleado_id = $1 AND fecha BETWEEN $2 AND $3
+          AND estado = ANY($4::text[])
+          AND ($5::uuid IS NULL OR id <> $5)
+        """,
+        empleado_id,
+        inicio,
+        inicio + timedelta(days=6),
+        list(ESTADOS_OCUPAN_AGENDA),
+        orden_id,
+    )
+    return decimal(semana) + horas > pdec(params, "horas_max_semana")
+
+
+async def slots(conn, fecha, horas: Decimal, lat=None, lng=None, zona_id=None, emergencia: bool = False, orden_id=None):
     from app.services.cotizador import descuento_valle, resolver_zona
 
     params = await obtener_parametros(conn)
+    if fecha > (ahora() + timedelta(days=pent(params, "anticipacion_max_dias"))).date():
+        raise ApiError(422, "ANTICIPACION", "No se puede reservar con tanta anticipación.")
     desde = time.fromisoformat(str(params["horario_atencion_desde"]))
     hasta = time.fromisoformat(str(params["horario_atencion_hasta"]))
     paso = pent(params, "slot_minutos")
     buffer_min = pent(params, "buffer_traslado_min")
+    min_horas = pent(params, "anticipacion_min_horas")
     zona = await resolver_zona(conn, lat, lng, zona_id)
     if zona is None:
         return []
     empleados = await conn.fetch(
         """
-        SELECT e.id
+        SELECT e.id, e.pausa_hasta
         FROM personal.empleados e
         JOIN personal.empleado_zonas ez ON ez.empleado_id = e.id
         WHERE e.estado = 'activo' AND ez.zona_id = $1
@@ -106,13 +153,21 @@ async def slots(conn, fecha, horas: Decimal, lat=None, lng=None, zona_id=None):
     salida = []
     while cursor + timedelta(hours=float(horas)) <= limite:
         hora = cursor.time()
+        inicio = datetime.combine(fecha, hora, tzinfo=TZ)
+        if not emergencia and inicio - ahora() < timedelta(hours=min_horas):
+            cursor += timedelta(minutes=paso)
+            continue
         libres = 0
         for empleado in empleados:
+            if empleado["pausa_hasta"] and empleado["pausa_hasta"] > ahora():
+                continue
             if not await _en_horario(conn, empleado["id"], fecha, hora, horas):
                 continue
             if await _bloqueado(conn, empleado["id"], fecha, hora, horas):
                 continue
-            if await _ocupado(conn, empleado["id"], fecha, hora, horas, buffer_min):
+            if await _ocupado(conn, empleado["id"], fecha, hora, horas, buffer_min, orden_id):
+                continue
+            if await _excede_jornada(conn, empleado["id"], fecha, horas, params, orden_id):
                 continue
             libres += 1
         valle = await descuento_valle(conn, fecha, hora, Decimal(100))
@@ -176,7 +231,10 @@ async def rankear(conn, orden) -> list[dict]:
         pdec(params, "peso_disponibilidad"),
         pdec(params, "peso_carga"),
     )
-    horas = decimal(orden["horas_est"] or 2)
+    cantidad = max(1, int(orden["cantidad_empleados"] or 1))
+    horas = decimal(orden["horas_est"] or 2) / Decimal(cantidad)
+    if horas < 1:
+        horas = Decimal(1)
     ya_ofrecidos = {
         fila["empleado_id"]
         for fila in await conn.fetch(
@@ -188,7 +246,11 @@ async def rankear(conn, orden) -> list[dict]:
     for empleado in empleados:
         if empleado["id"] in ya_ofrecidos:
             continue
+        if empleado["pausa_hasta"] and empleado["pausa_hasta"] > ahora():
+            continue
         if empleado["tipos_preferidos"] and orden["tipo_limpieza_id"] not in list(empleado["tipos_preferidos"]):
+            continue
+        if await _excede_jornada(conn, empleado["id"], orden["fecha"], horas, params, orden["id"]):
             continue
         if not await _en_horario(conn, empleado["id"], orden["fecha"], orden["hora_inicio"], horas):
             continue
@@ -403,6 +465,20 @@ async def aceptar_oferta(conn, oferta_id, empleado_id):
     orden = await conn.fetchrow("SELECT * FROM operacion.ordenes WHERE id = $1", oferta["orden_id"])
     if not await _capacitacion_ok(conn, empleado_id, orden["tipo_limpieza_id"]):
         raise ApiError(422, "CAPACITACION", "Te falta una capacitación obligatoria para este servicio.")
+    vencido = await conn.fetchval(
+        """
+        SELECT 1 FROM personal.documentos
+        WHERE empleado_id = $1 AND estado = 'aprobado'
+          AND vence_en IS NOT NULL AND vence_en < CURRENT_DATE
+        """,
+        empleado_id,
+    )
+    if vencido:
+        raise ApiError(422, "DOCUMENTO_VENCIDO", "Tenés un documento vencido. Actualizalo antes de aceptar.")
+    params = await obtener_parametros(conn)
+    horas = decimal(orden["horas_est"] or 2) / Decimal(max(1, int(orden["cantidad_empleados"] or 1)))
+    if await _excede_jornada(conn, empleado_id, orden["fecha"], max(horas, Decimal(1)), params, orden["id"]):
+        raise ApiError(422, "JORNADA", "Ese turno supera el tope de horas del día o de la semana.")
     await conn.execute(
         "UPDATE operacion.ofertas SET estado = 'aceptada', respondida_en = now() WHERE id = $1",
         oferta_id,
@@ -413,6 +489,21 @@ async def aceptar_oferta(conn, oferta_id, empleado_id):
         oferta_id,
     )
     await cambiar_estado(conn, oferta["orden_id"], "CONFIRMADA", None, campos={"empleado_id": empleado_id})
+    if pbool(params, "pin_checkin"):
+        await conn.execute(
+            "UPDATE operacion.ordenes SET pin = $2 WHERE id = $1",
+            oferta["orden_id"],
+            f"{secrets.randbelow(10000):04d}",
+        )
+    await conn.execute(
+        """
+        INSERT INTO operacion.orden_empleados (orden_id, empleado_id, rol)
+        VALUES ($1, $2, 'principal')
+        ON CONFLICT (orden_id, empleado_id) DO NOTHING
+        """,
+        oferta["orden_id"],
+        empleado_id,
+    )
     cliente_usuario = await conn.fetchval(
         "SELECT usuario_id FROM crm.clientes WHERE id = $1",
         orden["cliente_id"],

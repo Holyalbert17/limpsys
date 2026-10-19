@@ -8,11 +8,11 @@ from pydantic import BaseModel, Field
 from app.core.db import transaccion
 from app.core.deps import exigir_permiso, sesion_completa
 from app.core.errors import ApiError
-from app.core.util import ip_valida, rec, recs
+from app.core.util import ahora, ip_valida, rec, recs
 from app.services.asignacion import asignar_automatico, asignar_manual, rankear
 from app.services.cotizador import simular_margen
 from app.services.estado_orden import cambiar_estado
-from app.services.finanzas import confirmar_pago_pendiente, generar_liquidacion
+from app.services.finanzas import cerrar_periodo, confirmar_pago_pendiente, encolar_fiscal, generar_liquidacion
 from app.services.parametros import PARAMETROS_CRITICOS, guardar_parametro, obtener_parametros
 from app.services.personas import crear_admin, crear_cliente, crear_empleado
 
@@ -42,6 +42,26 @@ class EmpleadoIn(BaseModel):
     telefono: str | None = None
     correo: str | None = None
     zonas: list[int] = []
+
+
+class SucursalIn(BaseModel):
+    nombre: str = Field(min_length=2)
+    ciudad: str = Field(min_length=2)
+
+
+class TipoCambioIn(BaseModel):
+    moneda: str = Field(min_length=3, max_length=3)
+    tasa_gs: float = Field(gt=0)
+
+
+class DocumentoRevisionIn(BaseModel):
+    estado: str
+    vence_en: date | None = None
+    nota: str | None = None
+
+
+class EquipoIn(BaseModel):
+    empleado_id: UUID
 
 
 class ParametroIn(BaseModel):
@@ -335,11 +355,13 @@ async def empleados(usuario: dict = Depends(exigir_permiso("empleados.ver"))):
         filas = await conn.fetch(
             """
             SELECT e.id, u.nombre, u.apellido, u.cedula, e.calificacion, e.nivel, e.estado,
-                   e.disponible, e.servicios_completados
+                   e.disponible, e.servicios_completados, e.sucursal_operacion_id
             FROM personal.empleados e
             JOIN seguridad.usuarios u ON u.id = e.usuario_id
+            WHERE ($1::uuid IS NULL OR e.sucursal_operacion_id = $1)
             ORDER BY u.nombre
-            """
+            """,
+            usuario.get("sucursal_operacion_id"),
         )
     return recs(filas)
 
@@ -420,10 +442,23 @@ async def liquidar(empleado_id: UUID, desde: date, hasta: date, usuario: dict = 
 @router.post("/liquidaciones/{liquidacion_id}/pagar")
 async def pagar_liquidacion(liquidacion_id: UUID, usuario: dict = Depends(exigir_permiso("finanzas.liquidar"))):
     async with transaccion() as conn:
+        medio = await conn.fetchrow(
+            """
+            SELECT m.utilizable_desde
+            FROM finanzas.liquidaciones l
+            JOIN personal.medios_cobro m ON m.empleado_id = l.empleado_id AND m.activo
+            WHERE l.id = $1
+            ORDER BY m.creado_en DESC
+            LIMIT 1
+            """,
+            liquidacion_id,
+        )
+        if medio and medio["utilizable_desde"] and medio["utilizable_desde"] > ahora():
+            raise ApiError(409, "MEDIO_COBRO", "El medio de cobro todavía no se puede usar.")
         fila = await conn.fetchrow(
             """
             UPDATE finanzas.liquidaciones SET estado = 'pagada', pagada_en = now()
-            WHERE id = $1 AND estado = 'generada' RETURNING *
+            WHERE id = $1 AND estado IN ('generada', 'aprobada') RETURNING *
             """,
             liquidacion_id,
         )
@@ -790,6 +825,8 @@ async def emitir(factura_id: UUID, cdc: str = "", usuario: dict = Depends(exigir
             factura_id,
             cdc,
         )
+        if fila is not None:
+            await encolar_fiscal(conn, fila["id"], "factura", "enviado" if cdc else "pendiente")
     if fila is None:
         raise ApiError(404, "NO_ENCONTRADA", "No encontramos la factura.")
     return rec(fila)
@@ -823,5 +860,167 @@ async def resolver_cambio(cambio_id: UUID, aprobar: bool, usuario: dict = Depend
             "UPDATE operacion.cambios_turno SET estado = $2 WHERE id = $1",
             cambio_id,
             "aprobado" if aprobar else "rechazado",
+        )
+    return {"ok": True}
+
+
+@router.post("/liquidaciones/cerrar-periodo")
+async def liquidar_periodo(ciclo: str, fecha: date, usuario: dict = Depends(exigir_permiso("finanzas.liquidar"))):
+    async with transaccion() as conn:
+        filas = await cerrar_periodo(conn, ciclo, fecha)
+    return recs(filas)
+
+
+@router.post("/liquidaciones/{liquidacion_id}/revisar")
+async def revisar_liquidacion(liquidacion_id: UUID, usuario: dict = Depends(exigir_permiso("finanzas.liquidar"))):
+    async with transaccion() as conn:
+        fila = await conn.fetchrow(
+            """
+            UPDATE finanzas.liquidaciones SET estado = 'en_revision'
+            WHERE id = $1 AND estado = 'generada' RETURNING *
+            """,
+            liquidacion_id,
+        )
+    if fila is None:
+        raise ApiError(409, "ESTADO_INVALIDO", "La liquidación no está generada.")
+    return rec(fila)
+
+
+@router.post("/liquidaciones/{liquidacion_id}/aprobar")
+async def aprobar_liquidacion(liquidacion_id: UUID, usuario: dict = Depends(exigir_permiso("finanzas.liquidar"))):
+    async with transaccion() as conn:
+        fila = await conn.fetchrow(
+            """
+            UPDATE finanzas.liquidaciones SET estado = 'aprobada'
+            WHERE id = $1 AND estado = 'en_revision' RETURNING *
+            """,
+            liquidacion_id,
+        )
+    if fila is None:
+        raise ApiError(409, "ESTADO_INVALIDO", "La liquidación no está en revisión.")
+    return rec(fila)
+
+
+@router.post("/liquidaciones/{liquidacion_id}/conciliar")
+async def conciliar_liquidacion(liquidacion_id: UUID, usuario: dict = Depends(exigir_permiso("finanzas.conciliar"))):
+    async with transaccion() as conn:
+        fila = await conn.fetchrow(
+            """
+            UPDATE finanzas.liquidaciones SET estado = 'conciliada'
+            WHERE id = $1 AND estado = 'pagada' RETURNING *
+            """,
+            liquidacion_id,
+        )
+    if fila is None:
+        raise ApiError(409, "ESTADO_INVALIDO", "La liquidación no está pagada.")
+    return rec(fila)
+
+
+@router.get("/liquidaciones/{liquidacion_id}/banco")
+async def archivo_banco(liquidacion_id: UUID, usuario: dict = Depends(exigir_permiso("finanzas.liquidar"))):
+    async with transaccion() as conn:
+        fila = await conn.fetchrow(
+            """
+            SELECT l.total, u.cedula, u.nombre, u.apellido, m.referencia
+            FROM finanzas.liquidaciones l
+            JOIN personal.empleados e ON e.id = l.empleado_id
+            JOIN seguridad.usuarios u ON u.id = e.usuario_id
+            LEFT JOIN personal.medios_cobro m ON m.empleado_id = e.id AND m.activo
+            WHERE l.id = $1
+            """,
+            liquidacion_id,
+        )
+    if fila is None:
+        raise ApiError(404, "NO_ENCONTRADA", "No encontramos la liquidación.")
+    referencia = fila["referencia"] or ""
+    cuerpo = "cedula,nombre,monto,referencia\n"
+    cuerpo += f"{fila['cedula']},{fila['nombre']} {fila['apellido']},{int(fila['total'])},{referencia}\n"
+    return Response(content=cuerpo, media_type="text/csv")
+
+
+@router.get("/sucursales-operacion")
+async def sucursales(usuario: dict = Depends(exigir_permiso("empleados.ver"))):
+    async with transaccion() as conn:
+        filas = await conn.fetch("SELECT * FROM catalogo.sucursales_operacion ORDER BY nombre")
+    return recs(filas)
+
+
+@router.post("/sucursales-operacion")
+async def crear_sucursal(datos: SucursalIn, usuario: dict = Depends(exigir_permiso("usuarios.admin"))):
+    async with transaccion() as conn:
+        fila = await conn.fetchrow(
+            """
+            INSERT INTO catalogo.sucursales_operacion (nombre, ciudad)
+            VALUES ($1, $2) RETURNING *
+            """,
+            datos.nombre,
+            datos.ciudad,
+        )
+    return rec(fila)
+
+
+@router.post("/tipos-cambio")
+async def tipo_cambio(datos: TipoCambioIn, usuario: dict = Depends(exigir_permiso("parametros.ver"))):
+    async with transaccion() as conn:
+        moneda = datos.moneda.upper()
+        existe = await conn.fetchval("SELECT 1 FROM catalogo.monedas WHERE codigo = $1", moneda)
+        if not existe:
+            raise ApiError(422, "MONEDA", "Esa moneda no está en el catálogo.")
+        await conn.execute(
+            "UPDATE catalogo.tipos_cambio SET vigente_hasta = now() WHERE moneda = $1 AND vigente_hasta IS NULL",
+            moneda,
+        )
+        await conn.execute("UPDATE catalogo.monedas SET habilitada = true WHERE codigo = $1", moneda)
+        fila = await conn.fetchrow(
+            """
+            INSERT INTO catalogo.tipos_cambio (moneda, tasa_gs)
+            VALUES ($1, $2) RETURNING id, moneda, tasa_gs, vigente_desde
+            """,
+            moneda,
+            datos.tasa_gs,
+        )
+    return rec(fila)
+
+
+@router.patch("/documentos/{documento_id}")
+async def revisar_documento(documento_id: UUID, datos: DocumentoRevisionIn, usuario: dict = Depends(exigir_permiso("empleados.editar"))):
+    if datos.estado not in {"pendiente", "aprobado", "rechazado"}:
+        raise ApiError(422, "ESTADO", "El estado del documento no es válido.")
+    async with transaccion() as conn:
+        fila = await conn.fetchrow(
+            """
+            UPDATE personal.documentos
+            SET estado = $2, vence_en = COALESCE($3, vence_en), nota = COALESCE($4, nota)
+            WHERE id = $1
+            RETURNING id, estado, vence_en
+            """,
+            documento_id,
+            datos.estado,
+            datos.vence_en,
+            datos.nota,
+        )
+    if fila is None:
+        raise ApiError(404, "NO_ENCONTRADO", "No encontramos el documento.")
+    return rec(fila)
+
+
+@router.post("/ordenes/{orden_id}/equipo")
+async def sumar_equipo(orden_id: UUID, datos: EquipoIn, usuario: dict = Depends(exigir_permiso("ordenes.asignar"))):
+    async with transaccion() as conn:
+        orden = await conn.fetchrow("SELECT * FROM operacion.ordenes WHERE id = $1", orden_id)
+        if orden is None:
+            raise ApiError(404, "NO_ENCONTRADA", "No encontramos la solicitud.")
+        cupo = int(orden["cantidad_empleados"] or 1)
+        actual = await conn.fetchval("SELECT count(*) FROM operacion.orden_empleados WHERE orden_id = $1", orden_id)
+        if actual >= cupo:
+            raise ApiError(409, "EQUIPO", "El equipo de esta solicitud ya está completo.")
+        await conn.execute(
+            """
+            INSERT INTO operacion.orden_empleados (orden_id, empleado_id, rol)
+            VALUES ($1, $2, 'apoyo')
+            ON CONFLICT (orden_id, empleado_id) DO NOTHING
+            """,
+            orden_id,
+            datos.empleado_id,
         )
     return {"ok": True}

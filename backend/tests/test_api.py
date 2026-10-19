@@ -146,8 +146,8 @@ def test_salud_cotizacion_y_acceso():
         direcciones = cliente.get("/api/v1/direcciones", headers={"Authorization": f"Bearer {token_luis}"})
         assert direcciones.status_code == 200 and direcciones.json()
         direccion_id = direcciones.json()[0]["id"]
-        fecha = date(2026, 11, 2) + timedelta(days=secrets.randbelow(50))
-        if fecha.isoweekday() == 7:
+        fecha = date.today() + timedelta(days=21 + secrets.randbelow(20))
+        while fecha.isoweekday() == 7:
             fecha += timedelta(days=1)
         hora = "08:00:00" if secrets.randbelow(2) == 0 else "13:00:00"
         clave = f"pedido-{secrets.token_hex(8)}"
@@ -220,9 +220,10 @@ def test_salud_cotizacion_y_acceso():
         )
         assert lejos.status_code == 422
         assert lejos.json()["detail"]["code"] == "FUERA_DE_RADIO"
+        pin = cliente.get(f"/api/v1/ordenes/{orden_id}", headers={"Authorization": f"Bearer {token_luis}"}).json()["pin"]
         adentro = cliente.post(
             f"/api/v1/ordenes/{orden_id}/check-in",
-            json={"lat": -25.28, "lng": -57.63},
+            json={"lat": -25.28, "lng": -57.63, "pin": pin},
             headers={"Authorization": f"Bearer {token_rosa}", "Idempotency-Key": f"checkin-{clave}"},
         )
         assert adentro.status_code == 200, adentro.text

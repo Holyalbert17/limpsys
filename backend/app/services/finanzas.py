@@ -1,4 +1,4 @@
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 from decimal import Decimal
 from uuid import UUID
 from zoneinfo import ZoneInfo
@@ -358,13 +358,14 @@ async def reembolsar(conn, orden, monto: Decimal, actor_id):
         params = await obtener_parametros(conn)
         numero = await _numero_factura(conn, params)
         iva = monto / pdec(params, "iva_divisor")
-        await conn.execute(
+        nota_id = await conn.fetchval(
             """
             INSERT INTO finanzas.facturas (
               orden_id, cliente_id, numero, tipo, receptor_tipo, receptor_doc, receptor_nombre,
               subtotal, iva, total, estado, payload
             )
             VALUES ($1,$2,$3,'nota_credito',$4,$5,$6,$7,$8,$9,'pendiente_sifen',$10::jsonb)
+            RETURNING id
             """,
             orden["id"],
             orden["cliente_id"],
@@ -377,7 +378,20 @@ async def reembolsar(conn, orden, monto: Decimal, actor_id):
             monto,
             {"factura_origen": factura["numero"]},
         )
+        await encolar_fiscal(conn, nota_id, "nota_credito", "pendiente")
     return pago_id
+
+
+async def encolar_fiscal(conn, factura_id, tipo: str, estado: str) -> None:
+    await conn.execute(
+        """
+        INSERT INTO sistema.cola_fiscal (factura_id, tipo, estado, intentos, proximo_intento)
+        VALUES ($1, $2, $3, 1, now())
+        """,
+        factura_id,
+        tipo,
+        estado,
+    )
 
 
 async def generar_liquidacion(conn, empleado_id: UUID, desde, hasta):
@@ -449,6 +463,25 @@ async def generar_liquidacion(conn, empleado_id: UUID, desde, hasta):
             [fila["id"] for fila in adelantos],
             liquidacion_id,
         )
+    for fila in filas:
+        await conn.execute(
+            """
+            INSERT INTO finanzas.liquidacion_items (liquidacion_id, tipo, orden_id, monto, descripcion)
+            VALUES ($1, 'servicio', $2, $3, 'Servicio')
+            """,
+            liquidacion_id,
+            fila["orden_id"],
+            fila["costo_mano_obra"],
+        )
+    if total_adelantos:
+        await conn.execute(
+            """
+            INSERT INTO finanzas.liquidacion_items (liquidacion_id, tipo, monto, descripcion)
+            VALUES ($1, 'adelanto', $2, 'Adelantos descontados')
+            """,
+            liquidacion_id,
+            -total_adelantos,
+        )
     return await conn.fetchrow("SELECT * FROM finanzas.liquidaciones WHERE id = $1", liquidacion_id)
 
 
@@ -484,4 +517,73 @@ async def pedir_adelanto(conn, empleado_id: UUID, monto: Decimal):
         monto,
         comision,
         monto - comision,
+    )
+
+
+def _periodo(ciclo: str, fecha: date) -> tuple[date, date]:
+    if ciclo == "semanal":
+        desde = fecha - timedelta(days=fecha.weekday())
+        return desde, desde + timedelta(days=6)
+    if ciclo == "quincenal":
+        if fecha.day <= 15:
+            return fecha.replace(day=1), fecha.replace(day=15)
+        siguiente = (fecha.replace(day=28) + timedelta(days=4)).replace(day=1)
+        return fecha.replace(day=16), siguiente - timedelta(days=1)
+    if ciclo == "mensual":
+        siguiente = (fecha.replace(day=28) + timedelta(days=4)).replace(day=1)
+        return fecha.replace(day=1), siguiente - timedelta(days=1)
+    raise ApiError(422, "CICLO", "El ciclo tiene que ser semanal, quincenal o mensual.")
+
+
+async def cerrar_periodo(conn, ciclo: str, fecha: date) -> list:
+    desde, hasta = _periodo(ciclo, fecha)
+    empleados = await conn.fetch(
+        """
+        SELECT DISTINCT p.empleado_id
+        FROM finanzas.planilla_ingresos p
+        JOIN operacion.ordenes o ON o.id = p.orden_id
+        WHERE p.liquidacion_id IS NULL
+          AND p.estado_pago <> 'cancelada'
+          AND o.fecha BETWEEN $1 AND $2
+        """,
+        desde,
+        hasta,
+    )
+    hechas = []
+    for empleado in empleados:
+        hechas.append(await generar_liquidacion(conn, empleado["empleado_id"], desde, hasta))
+    return hechas
+
+
+async def disputar_item(conn, empleado_id, liquidacion_id, item_id, motivo: str):
+    params = await obtener_parametros(conn)
+    fila = await conn.fetchrow(
+        """
+        SELECT i.*, l.estado AS liquidacion_estado, l.creado_en AS liquidacion_en, l.empleado_id
+        FROM finanzas.liquidacion_items i
+        JOIN finanzas.liquidaciones l ON l.id = i.liquidacion_id
+        WHERE i.id = $1 AND i.liquidacion_id = $2
+        """,
+        item_id,
+        liquidacion_id,
+    )
+    if fila is None or fila["empleado_id"] != empleado_id:
+        raise ApiError(404, "NO_ENCONTRADO", "No encontramos ese ítem.")
+    if fila["liquidacion_estado"] not in {"generada", "en_revision", "aprobada"}:
+        raise ApiError(409, "ESTADO_INVALIDO", "Esa liquidación ya no se puede disputar.")
+    if ahora() > fila["liquidacion_en"] + timedelta(hours=pent(params, "disputa_pago_horas")):
+        raise ApiError(422, "DISPUTA_PAGO", "Pasó el plazo para disputar el pago.")
+    await conn.execute("UPDATE finanzas.liquidacion_items SET disputado = true WHERE id = $1", item_id)
+    await conn.execute(
+        "UPDATE finanzas.liquidaciones SET estado = 'disputada' WHERE id = $1",
+        liquidacion_id,
+    )
+    return await conn.fetchrow(
+        """
+        INSERT INTO finanzas.disputas_pago (item_id, motivo)
+        VALUES ($1, $2)
+        RETURNING *
+        """,
+        item_id,
+        motivo,
     )
