@@ -1,0 +1,955 @@
+Plataforma de Servicios de Limpieza
+Documento funcional: lógica de negocio, experiencia de usuario y especificación por rol
+Versión 1.0 · Octubre 2026 · Roles: Cliente, Empleado, Administrador
+1. Resumen y objetivos
+Plataforma web y móvil para solicitar servicios de limpieza a domicilio y para empresas. El cliente pide el servicio en pocos pasos, el administrador lo asigna (manual o automático) y el empleado lo ejecuta con navegación por Google Maps, check-in/check-out y checklist de tareas.
+Objetivos de negocio
+• Margen bruto ≥ 35 % por orden.
+• Ocupación de empleados ≥ 75 % de sus horas disponibles.
+• Cancelación < 8 % y puntualidad > 95 %.
+• Recurrencia a 60 días > 40 %.
+• Experiencia del cliente: solicitar un servicio en menos de 90 segundos desde el segundo pedido.
+Principio rector: todo valor numérico (tarifas, recargos, plazos, porcentajes) es un parámetro configurable desde el panel de administración, nunca un valor fijo en el código. Los montos de este documento están en guaraníes (Gs.) y son ejemplos.
+2. Roles y permisos
+Rol
+Qué puede hacer
+Cliente
+Solicitar, pagar, seguir en vivo, cancelar, calificar, gestionar direcciones y facturación
+Empleado
+Recibir ofertas, aceptar/rechazar, navegar, check-in/out, ejecutar checklist, ver ingresos
+Administrador
+Cola de solicitudes, asignación, control en vivo, finanzas, parámetros, reportes
+Super administrador
+Todo lo anterior, más usuarios admin, auditoría y parámetros críticos
+Los permisos se manejan por rol + permisos granulares (ej. ordenes.reasignar, finanzas.ver, parametros.editar).
+3. Modelo de ingresos y motor de precios
+3.1 Fuentes de ingreso
+Fuente
+Regla
+Servicio por hora
+Tarifa por tipo de limpieza × horas estimadas
+Elementos solicitados
+Adicional fijo o por minutos (heladera, horno, ventanas, balcón, tapizados, etc.)
+Recargo por horario
+Nocturno, fin de semana o feriado: +20 % a +35 %
+Recargo por emergencia
++40 % (empresas grandes)
+Preferencia de personal
++5 % a +10 % si el cliente elige un empleado específico
+Planes recurrentes
+Semanal/quincenal con 8–12 % de descuento
+Propinas
+100 % para el empleado, fuera del margen
+3.2 Fórmula
+horas_est = base_horas[tipo_hogar] × factor_limpieza[tipo_limpieza] + Σ min_elemento / 60
+subtotal  = tarifa_hora[tipo_limpieza] × horas_est + Σ adicional_elemento
+total     = subtotal × recargo_horario × recargo_urgencia × recargo_preferencia + traslado_zona − descuentos
+IVA       = total / 11   (IVA 10 % incluido)
+margen    = total − (costo_empleado + cargas + traslado + insumos)
+3.3 Tablas de ejemplo (parametrizables)
+Tipo de limpieza
+Tarifa/hora
+Factor horas
+Regular
+45.000
+1,0
+Profunda
+70.000
+1,6
+Post-obra
+90.000
+2,2
+Empresa/oficina
+60.000
+1,2
+Tipo de hogar
+Horas base
+Departamento chico
+2
+Casa mediana
+4
+Casa grande
+6
+3.4 Reglas del presupuesto del cliente
+• El cliente puede indicar un presupuesto máximo. Si es menor al calculado, el sistema no rechaza: propone quitar elementos, reducir horas o cambiar el tipo de limpieza hasta ajustarse, mostrando qué se pierde en cada opción.
+• Mínimo por orden: 2 horas más traslado.
+• Precio dinámico: descuento en horarios valle, recargo en horas pico.
+• Recurrencia: la 4.ª orden consecutiva recibe 5 % de descuento.
+4. Acceso y autenticación
+4.1 Alta de cliente (por el administrador o por autoregistro)
+Al dar de alta un cliente se registran: nombre, apellido, número de cédula (obligatorio y único), teléfono, correo (opcional), dirección inicial (opcional).
+Al guardar, el sistema:
+1. Crea el usuario con usuario = número de cédula.
+2. Asigna como contraseña inicial el mismo número de cédula (almacenada únicamente como hash con Argon2id o bcrypt, nunca en texto plano).
+3. Marca la cuenta con debe_cambiar_password = true.
+4. Envía por WhatsApp o SMS un mensaje de bienvenida con el enlace de ingreso (sin incluir la contraseña).
+4.2 Pantalla de inicio de sesión del cliente
+• Campo Número de cédula (teclado numérico, validación de formato, sin puntos).
+• Campo Contraseña con botón mostrar/ocultar.
+• Botón Ingresar, enlace Olvidé mi contraseña, enlace Crear cuenta si el autoregistro está activo.
+• Mensajes de error genéricos ("Cédula o contraseña incorrecta") para no revelar si la cédula existe.
+• Parametrizable desde el panel: logo, colores, texto de bienvenida, imagen de fondo, idioma (es/gn/en), activar o desactivar autoregistro, activar o desactivar ingreso con código por WhatsApp.
+4.3 Primer ingreso: modal obligatorio de nueva contraseña
+Si debe_cambiar_password = true, tras validar la cédula el sistema lanza un modal que no se puede cerrar (sin X, sin clic fuera) con:
+• Título: "Bienvenido, [nombre]. Crea tu contraseña".
+• Campo Nueva contraseña y Confirmar contraseña.
+• Indicador de fortaleza en vivo y lista de requisitos que se tildan solos: mínimo 8 caracteres, una letra, un número, y distinta a la cédula.
+• Botón Guardar y continuar, deshabilitado hasta cumplir los requisitos.
+• Tras guardar: debe_cambiar_password = false, se cierran las sesiones previas, se muestra una animación de éxito y se redirige al tour de bienvenida (4 pasos: agregar dirección, elegir servicio, pagar, seguir en vivo).
+4.4 Seguridad (obligatorio por usar la cédula como clave inicial)
+La cédula es un dato conocido por terceros, por eso la contraseña inicial es un punto débil. Controles:
+• La contraseña inicial caduca a las 72 horas (parametrizable). Después, el cliente debe usar "Olvidé mi contraseña" con código por WhatsApp/SMS.
+• Mientras debe_cambiar_password = true, la sesión solo permite el modal; ninguna otra API responde.
+• Bloqueo temporal tras 5 intentos fallidos (15 min), con aviso al cliente.
+• Limitación de intentos por IP y por cédula (rate limiting), CAPTCHA tras 3 fallos.
+• Tokens JWT de corta duración con refresh token rotativo; cierre de sesión remoto.
+• Registro de auditoría de inicios de sesión (fecha, dispositivo, IP).
+• Opción de verificar el teléfono con un código de un solo uso en el primer ingreso (recomendado, activable).
+4.5 Recuperación y cuenta
+Recuperar con código OTP por WhatsApp/SMS, cambiar contraseña, cerrar sesión en todos los dispositivos, ingreso con huella/Face ID en la app móvil después del primer login.
+5. Parámetros configurables (panel de administración)
+Grupo
+Parámetros
+Precios
+Tarifa por tipo de limpieza, factor de horas, horas base por hogar, adicional por elemento, traslado por zona
+Recargos
+Nocturno, fin de semana, feriado, emergencia, preferencia de personal
+Descuentos
+Recurrencia, cupones, primera compra, horarios valle
+Pagos
+Anticipo (30 % por defecto), medios de pago, plazo de empresas (15/30 días)
+Operación
+Tiempo de aceptación del empleado (30 min), radio de check-in (150 m), alerta de demora (15 min), horario de atención, zonas de cobertura
+Cancelación
+Ventanas y porcentajes de cargo, compensación al empleado
+Empleados
+Pago por hora, bonos por calificación y puntualidad, umbral de rechazo, penalizaciones
+Asignación
+Pesos del puntaje: cercanía 40 %, calificación 30 %, disponibilidad 20 %, carga 10 %
+Login y marca
+Logo, colores, textos, intentos máximos, caducidad de contraseña inicial
+Catálogos
+Elementos, tipos de hogar, tipos de limpieza, tareas del checklist
+Facturación
+Timbrado, establecimiento, punto de expedición, series, textos legales
+Notificaciones
+Plantillas y canales por evento
+Cada cambio queda en un historial con usuario, fecha, valor anterior y nuevo, y puede programarse con fecha de vigencia.
+6. Páginas y pantallas del cliente
+6.1 Mapa de navegación
+Login → (Modal contraseña) → Inicio → Nueva solicitud → Presupuesto → Pago → Seguimiento → Calificación
+Menú inferior en móvil: Inicio · Mis servicios · Solicitar (botón central) · Notificaciones · Perfil.
+6.2 Detalle de páginas
+1. Inicio (dashboard)
+• Saludo personalizado y próxima limpieza con cuenta regresiva.
+• Tarjeta de servicio activo con estado en vivo y mapa miniatura.
+• Botón grande "Solicitar limpieza" y botón "Repetir último servicio" (un toque).
+• Accesos rápidos: direcciones, facturas, soporte.
+• Promociones y planes recurrentes.
+2. Nueva solicitud (asistente en 6 pasos, con barra de progreso y guardado automático como borrador)
+1. Tipo de hogar (tarjetas con ícono y metros cuadrados orientativos).
+2. Tipo de limpieza (regular, profunda, post-obra, oficina) con descripción de qué incluye cada una.
+3. Elementos adicionales (selección múltiple con ícono, precio y minutos; el total se actualiza al instante).
+4. Día y horario: calendario que muestra solo slots con disponibilidad real; los horarios valle muestran etiqueta de descuento.
+5. Dirección y ubicación en Google Maps (ver sección 7).
+6. Presupuesto y preferencias: personal opcional, notas, factura con nombre, presupuesto máximo.
+3. Presupuesto
+• Desglose claro: servicio, elementos, recargos, traslado, descuentos, IVA y total.
+• Comparador de 2–3 alternativas (más económica, recomendada, completa).
+• Botón "Ajustar a mi presupuesto".
+• Cupón de descuento.
+4. Pago
+• Anticipo del 30 % o pago total.
+• Medios: tarjeta, transferencia, billeteras, efectivo (si se habilita), saldo a favor.
+• Datos de factura: consumidor final por defecto o RUC/CI y razón social si lo desea.
+• Resumen final y confirmación con animación.
+5. Seguimiento en vivo
+• Línea de tiempo de estados (Enviada, Asignada, Confirmada, En camino, En curso, Completada).
+• Mapa con la ubicación del empleado en tiempo real y tiempo estimado de llegada.
+• Tarjeta del empleado: foto, nombre, calificación, servicios completados.
+• Botones: llamar o escribir por chat enmascarado, compartir el seguimiento, cancelar, reportar un problema.
+• Durante el servicio: progreso del checklist y fotos "antes/después" cuando corresponda.
+6. Mis servicios
+• Pestañas: Próximos, En curso, Historial, Cancelados.
+• Acciones por orden: ver detalle, repetir, reprogramar, descargar factura, calificar.
+7. Calificación y propina
+• Estrellas por categorías (puntualidad, calidad, trato), comentario, fotos y propina opcional con montos sugeridos.
+• Si la nota es ≤ 3, se ofrece la re-limpieza gratuita dentro de 24 h.
+8. Direcciones guardadas (casa, trabajo, otra) con apodo, referencias, instrucciones de acceso y mapa.
+9. Facturación: datos fiscales guardados (RUC/CI, razón social), historial de facturas electrónicas.
+10. Planes recurrentes: crear, pausar, cambiar día/hora, elegir empleado fijo.
+11. Perfil y seguridad: datos personales, cambio de contraseña, huella/Face ID, dispositivos activos, idioma, notificaciones.
+12. Soporte: chat, preguntas frecuentes, reportar incidente, disputa.
+13. Notificaciones: centro con filtros y preferencias por canal.
+7. Ubicación con Google Maps (cliente)
+• Autocompletado de direcciones (Places Autocomplete) acotado al país.
+• Mapa con pin arrastrable; al mover el pin se actualiza la dirección (geocodificación inversa) y se guardan latitud y longitud.
+• Botón "Usar mi ubicación actual" con permiso del navegador.
+• Campos adicionales: referencia ("portón verde"), piso/departamento, instrucciones de acceso (timbre, portería), foto de la fachada.
+• Validación de cobertura: si el pin está fuera de las zonas de servicio, se avisa antes de continuar y se ofrece lista de espera.
+• El traslado se calcula automáticamente por zona o distancia (Distance Matrix) desde la base o el empleado más cercano.
+• Enlace de ubicación compartida: el cliente puede pegar un enlace de Google Maps y el sistema extrae las coordenadas.
+• Las coordenadas exactas solo se revelan al empleado una vez confirmado el servicio.
+8. Experiencia de usuario de nivel superior
+Velocidad y simplicidad
+• Segundo pedido en menos de 90 segundos: "Repetir último servicio", direcciones y datos precargados.
+• Un solo asistente, sin recargar páginas; guardado automático de borradores.
+• Presupuesto en tiempo real mientras elige, con animación suave del total.
+Confianza
+• Perfil verificado del empleado (identidad, antecedentes, capacitación) visible antes del servicio.
+• Seguimiento en vivo estilo transporte por aplicación.
+• Precio final claro, sin costos ocultos; garantía de re-limpieza.
+• Fotos antes/después y checklist visible.
+Diseño
+• Móvil primero, PWA instalable, modo claro y oscuro, accesibilidad (contraste, tamaños, lector de pantalla).
+• Microinteracciones: confeti al confirmar, esqueletos de carga, vibración en acciones clave.
+• Estados vacíos amigables con una acción sugerida.
+• Textos en español natural, opción en guaraní.
+Comunicación
+• Notificaciones por push, WhatsApp, SMS y correo según preferencia.
+• Recordatorios: 24 h antes, 1 h antes, "tu empleado va en camino", "servicio completado".
+• Chat dentro de la orden con números enmascarados.
+Fidelización
+• Puntos por servicio canjeables, referidos con crédito para ambos, planes recurrentes con descuento, recordatorio inteligente ("hace 14 días de tu última limpieza").
+9. Aplicación del empleado: recorrido detallado
+9.1 Alta y acceso
+Ingreso con número de cédula y contraseña, con el mismo flujo de primer ingreso y modal de cambio. Se completa el perfil: foto, teléfono, medio de cobro, zonas de trabajo, disponibilidad semanal, documentos (cédula, certificado de antecedentes, constancias) y capacitación obligatoria con checklist de inducción.
+9.2 Pantallas principales
+Inicio
+• Interruptor grande Disponible / No disponible.
+• Próximo servicio con cuenta regresiva y mapa.
+• Ingresos de hoy, de la semana y puntaje.
+• Ofertas nuevas con temporizador.
+Ofertas de trabajo
+• Tarjeta con: tipo de limpieza, fecha y hora, zona aproximada (no la dirección exacta), duración estimada, pago que recibirá, distancia y elementos.
+• Botones Aceptar y Rechazar (con motivo). Tiempo límite de 30 min antes de pasar al siguiente candidato.
+• Opción de ver la ruta aproximada en el mapa antes de aceptar.
+Agenda
+• Vista día/semana/mes de servicios confirmados; bloqueo de días libres, vacaciones y horarios no disponibles.
+• Sincronización con el calendario del teléfono.
+9.3 Jornada paso a paso
+1. Confirmación: acepta la oferta; se revela la dirección exacta, instrucciones de acceso y contacto del cliente (enmascarado).
+2. Preparación: lista de insumos y herramientas a llevar según el servicio; recordatorio de uniforme y credencial.
+3. Salida: botón "Voy en camino"; se activa el seguimiento en vivo y se notifica al cliente con el tiempo estimado de llegada.
+4. Navegación por Google Maps: ruta dentro de la app o apertura de Google Maps/Waze con la dirección precargada; recálculo por tráfico; aviso automático de retraso al cliente y al administrador si el tiempo estimado supera la hora pactada.
+5. Llegada y check-in: el botón se habilita al estar dentro del radio configurado (150 m) y registra hora y coordenadas. Si está fuera del radio, puede solicitar check-in manual con nota y foto, sujeto a revisión.
+6. Verificación inicial: foto "antes" de las áreas (obligatoria en profunda y post-obra), confirmación de elementos solicitados, reporte de condiciones especiales (mascotas, objetos frágiles, daños previos).
+7. Ejecución con checklist: tareas por ambiente (cocina, baños, dormitorios, living, exteriores) con tilde, cronómetro por tarea y notas. Las tareas las define el administrador y pueden añadirse extras aprobados.
+8. Imprevistos: botones de "Necesito más tiempo" (el cliente aprueba el extra desde su app), "No tengo acceso", "Falta un insumo", "Reportar daño o incidente" y "Cliente ausente".
+9. Finalización: foto "después", revisión del checklist al 100 %, firma o conformidad del cliente (en la app del cliente o en pantalla).
+10. Check-out: registra hora y ubicación; el sistema calcula las horas trabajadas y pasa la orden a COMPLETADA.
+11. Cierre: el empleado ve el pago generado y puede calificar al cliente (trato, acceso, condiciones del lugar).
+9.4 Opciones y herramientas adicionales del empleado
+Opción
+Detalle
+Botón de pánico / SOS
+Envía ubicación en vivo al administrador y a un contacto de emergencia
+Compartir ruta
+Comparte su trayecto con un familiar
+Modo sin conexión
+Check-in, checklist y fotos se guardan y sincronizan al volver la señal
+Chat
+Con el cliente y con el administrador, con números enmascarados y mensajes rápidos
+Llamada
+Masked call con un toque
+Planilla de ingresos
+Detalle por servicio: horas, tarifa, bonos, propinas, descuentos
+Liquidaciones
+Historial de pagos semanales/quincenales, comprobantes descargables
+Retiro anticipado
+Adelanto de lo ya ganado, con tope y comisión configurables
+Bonos y metas
+Barra de progreso hacia bonos por calificación, puntualidad y cantidad de servicios
+Ranking y nivel
+Niveles (Bronce, Plata, Oro) con mejores ofertas y tarifa mayor
+Capacitaciones
+Microcursos en video, certificados y habilitación para servicios especiales
+Inventario
+Solicitud de insumos y herramientas, registro de uso
+Zonas calientes
+Mapa de calor con la demanda del día para posicionarse
+Cambio de turno
+Ofrecer un servicio a otro empleado, sujeto a aprobación
+Ausencias
+Solicitud de licencia o ausencia con aviso previo
+Soporte
+Centro de ayuda, reporte de problemas, disputa de un pago
+Preferencias
+Zonas, tipos de servicio, distancia máxima, notificaciones
+9.5 Reglas del empleado
+• Rechazo de más del 30 % de ofertas baja su prioridad.
+• Cancelación por parte del empleado: penalización de puntaje; 3 en un mes implican suspensión.
+• Pago: tarifa por hora trabajada (ej. 25.000/h) más bono por calificación ≥ 4,7 y por puntualidad.
+• Las horas extra solo se pagan si el cliente las aprobó en la app.
+• Check-in tardío de más de 15 min dispara alerta al administrador y reasignación inmediata si no responde.
+10. Google Maps en la operación del empleado
+• Seguimiento en vivo solo durante "En camino" y "En curso"; el empleado ve un indicador visible de que se comparte su ubicación y se detiene al hacer check-out.
+• Geocerca de 150 m alrededor de la dirección del cliente para habilitar check-in y check-out.
+• Ruta optimizada cuando tiene varios servicios en el día (Directions/Routes API) para minimizar traslados.
+• Asignación por cercanía: el puntaje usa distancia real por tiempo de viaje, no línea recta.
+• Mapa del administrador: todos los empleados activos, sus estados (libre, en camino, en servicio), alertas de demora y servicios sin asignar.
+• Se almacena el trayecto de cada orden para disputas y cálculo de traslado, con retención limitada y política de privacidad.
+• Control de costos de APIs: caché de geocodificación, solicitudes agrupadas y frecuencia de ubicación adaptativa (cada 10–15 s en ruta, menor en reposo).
+11. Panel del administrador
+1. Cola de solicitudes por orden de llegada; emergencias de empresas grandes arriba con etiqueta roja y temporizador de respuesta.
+2. Asignación: automática por puntaje (cercanía 40 %, calificación 30 %, disponibilidad 20 %, equilibrio de carga 10 %) o manual con override y motivo.
+3. Mapa en vivo con empleados, servicios activos y alertas.
+4. Control de llegadas: alerta a los 15 min sin check-in, reasignación en un clic.
+5. Asignación de tareas: plantillas de checklist por tipo de limpieza, ajustables por orden.
+6. Clientes: alta (con acceso por cédula según la sección 4), historial, notas, bloqueo, restablecer acceso.
+7. Empleados: alta, documentos, capacitación, zonas, calificaciones, sanciones, liquidaciones.
+8. Finanzas: planilla de ingresos con precio, costo de mano de obra, margen, estado de pago, cancelaciones con motivo; conciliación de pagos; cuentas por cobrar de empresas.
+9. Parámetros: todo lo de la sección 5.
+10. Reportes: exportación a Excel/PDF, filtros por fecha, zona, empleado, tipo de servicio.
+11. Incidentes y disputas: bandeja con evidencias (fotos, ruta, chat) y resolución con reembolso o compensación.
+12. Auditoría: registro de acciones de cada usuario.
+12. Máquina de estados de la solicitud
+BORRADOR → ENVIADA → EN_REVISIÓN → ASIGNADA → CONFIRMADA
+→ EN_CAMINO → EN_CURSO → COMPLETADA → PAGADA → CALIFICADA
+            ↘ CANCELADA / NO_SHOW / DISPUTA
+Transición
+Quién
+Condición
+BORRADOR → ENVIADA
+Cliente
+Datos completos y anticipo pagado
+ENVIADA → EN_REVISIÓN
+Sistema
+Cola FIFO; emergencias primero
+EN_REVISIÓN → ASIGNADA
+Admin o auto
+Empleado disponible, en zona, sin superposición
+ASIGNADA → CONFIRMADA
+Empleado
+Acepta en ≤ 30 min; si no, se reasigna
+CONFIRMADA → EN_CAMINO
+Empleado
+Pulsa "Voy en camino"
+EN_CAMINO → EN_CURSO
+Empleado
+Check-in dentro de 150 m
+EN_CURSO → COMPLETADA
+Empleado
+Check-out + checklist completo
+COMPLETADA → PAGADA
+Sistema
+Pago confirmado y asentado en la planilla
+PAGADA → CALIFICADA
+Cliente
+Envía calificación (o vence el plazo)
+13. Cancelaciones y garantías
+Momento
+Cliente
+Empleado afectado
+> 24 h antes
+Reembolso 100 %
+n/a
+24 h a 4 h antes
+Cargo 30 %
+Compensación 50 % del cargo
+< 4 h o no-show
+Cargo 100 %
+Pago de 1 h mínima + traslado
+Cancela el empleado
+Reasignación sin costo
+Penalización de puntaje; 3 en un mes = suspensión
+• Garantía de re-limpieza gratuita dentro de 24 h si la calificación es ≤ 3, con tope por cliente.
+• Todo se registra en la planilla de ingresos como cancelación con motivo.
+14. Empresas grandes y emergencias
+• Contrato corporativo con tarifa preferencial por volumen y compromiso mensual mínimo.
+• Solicitud de emergencia con respuesta garantizada (ej. ≤ 2 h), recargo +40 %, cobro a 15/30 días con factura.
+• Bolsa de empleados de guardia con pago por disponibilidad.
+• Multiusuario por empresa: administrador de cuenta, sucursales, centros de costo y reportes mensuales.
+15. Notificaciones por evento
+Evento
+Cliente
+Empleado
+Admin
+Solicitud enviada
+Push + WhatsApp
+–
+Panel
+Asignación
+Push
+Push + sonido
+–
+Confirmación
+Push
+–
+–
+En camino (ETA)
+Push + WhatsApp
+–
+–
+Demora > 15 min
+Push
+Push
+Alerta
+Check-in / check-out
+Push
+–
+–
+Servicio completado
+Push + correo
+Push
+–
+Pago / factura
+Correo + WhatsApp
+–
+–
+Cancelación
+Push
+Push
+Panel
+Cada plantilla es editable y respeta las preferencias de canal del usuario.
+16. Facturación electrónica (SIFEN)
+• Por defecto se emite a consumidor final; si el cliente lo pide, se usa RUC o cédula con razón social.
+• El documento electrónico se genera al confirmar el pago, se envía por correo y WhatsApp y queda en "Facturación" del cliente.
+• Notas de crédito automáticas en reembolsos y cancelaciones con devolución.
+• IVA 10 % discriminado (precio con IVA incluido; IVA = total / 11).
+• Empresas: facturación a crédito con vencimiento y recordatorios de cobro.
+17. Modelo de datos (entidades principales)
+Entidad
+Campos clave
+usuarios
+id, rol, cedula (único), password_hash, debe_cambiar_password, password_expira_en, intentos_fallidos, bloqueado_hasta, estado
+clientes
+id, usuario_id, nombre, telefono, correo, ruc, razon_social, tipo (persona/empresa)
+direcciones
+id, cliente_id, apodo, direccion, lat, lng, place_id, referencia, instrucciones, zona_id
+empleados
+id, usuario_id, calificacion, nivel, estado, zonas, medio_cobro, disponible
+disponibilidad_empleado
+empleado_id, dia_semana, desde, hasta, bloqueos
+zonas
+id, nombre, poligono, traslado
+tipos_limpieza / tipos_hogar / elementos
+id, nombre, tarifa/horas/adicional, minutos, activo
+ordenes
+id, cliente_id, direccion_id, empleado_id, estado, fecha, hora_inicio, horas_est, subtotal, recargos, descuentos, iva, total, anticipo, es_emergencia
+orden_elementos
+orden_id, elemento_id, cantidad, precio
+orden_tareas
+orden_id, tarea, completada, hora, nota
+orden_fotos
+orden_id, tipo (antes/después/incidente), url, fecha
+registro_llegadas
+orden_id, tipo (check-in/out), hora, lat, lng, distancia_m, manual
+ubicaciones_empleado
+orden_id, empleado_id, lat, lng, fecha_hora
+pagos
+id, orden_id, medio, monto, estado, referencia
+planilla_ingresos
+orden_id, precio, costo_mano_obra, traslado, insumos, margen, estado_pago, motivo_cancelacion
+liquidaciones
+empleado_id, periodo, horas, bonos, descuentos, total, estado
+calificaciones
+orden_id, de_rol, a_id, puntaje, categorias, comentario
+parametros
+clave, valor, vigente_desde, modificado_por, historial
+notificaciones
+usuario_id, evento, canal, estado, fecha
+auditoria
+usuario_id, accion, entidad, antes, despues, fecha
+18. Endpoints principales (API REST)
+Método
+Ruta
+Descripción
+POST
+/auth/login
+Cédula + contraseña; devuelve token y debe_cambiar_password
+POST
+/auth/cambiar-password
+Modal de primer ingreso
+POST
+/auth/recuperar · /auth/verificar-otp
+Recuperación por código
+GET/POST
+/direcciones
+Gestión de direcciones con coordenadas
+POST
+/presupuesto
+Calcula precio y alternativas
+GET
+/disponibilidad?fecha=&zona=
+Slots reales
+POST
+/ordenes
+Crea la solicitud
+GET
+/ordenes/{id}/seguimiento
+Estado + ubicación en vivo (WebSocket/SignalR)
+POST
+/ordenes/{id}/cancelar
+Con cálculo de cargo
+POST
+/ordenes/{id}/calificar
+Calificación y propina
+GET
+/empleado/ofertas
+Ofertas pendientes
+POST
+/empleado/ofertas/{id}/aceptar · /rechazar
+Respuesta a la oferta
+POST
+/ordenes/{id}/en-camino · /check-in · /check-out
+Jornada del empleado
+PATCH
+/ordenes/{id}/tareas/{tareaId}
+Checklist
+POST
+/ordenes/{id}/extra-tiempo
+Solicitud de horas extra
+POST
+/empleado/sos
+Alerta de emergencia
+GET
+/empleado/ingresos
+Planilla y liquidaciones
+GET/POST
+/admin/solicitudes · /admin/asignar
+Cola y asignación
+GET/PUT
+/admin/parametros
+Parámetros con historial
+POST
+/admin/clientes
+Alta con acceso por cédula
+GET
+/admin/reportes/*
+KPIs y exportaciones
+19. KPIs del panel
+KPI
+Meta
+Margen bruto por orden
+≥ 35 %
+Tasa de cancelación
+< 8 %
+Puntualidad (check-in a tiempo)
+> 95 %
+Calificación promedio
+≥ 4,6
+Ocupación de empleados
+≥ 75 %
+Recurrencia a 60 días
+> 40 %
+Tiempo de asignación
+< 15 min
+LTV / CAC
+≥ 3
+20. Hoja de ruta sugerida
+Fase
+Alcance
+1. MVP
+Login por cédula con modal, solicitud, presupuesto, asignación manual, check-in/out, planilla de ingresos
+2. Experiencia
+Mapas en vivo, ETA, notificaciones WhatsApp, calificaciones, SIFEN
+3. Optimización
+Asignación automática, precios dinámicos, rutas optimizadas, recurrencia
+4. Escala
+Empresas, emergencias, bolsa de guardia, niveles y bonos, app nativa
+Riesgos a vigilar: uso de la cédula como contraseña inicial (mitigado con caducidad y OTP), costo de las APIs de Google Maps (caché y límites), cumplimiento de privacidad en el seguimiento de ubicación, y dependencia de la disponibilidad de empleados en horas pico.
+21. Combos, ofertas y descuentos
+21.1 Combos (paquetes de servicios)
+Un combo agrupa servicios y elementos con un precio fijo o un porcentaje de descuento. Todos se crean y editan desde el panel de administración, sin tocar código.
+Combo (ejemplo)
+Incluye
+Descuento ejemplo
+Hogar Express
+Limpieza regular + heladera + horno
+10 %
+Renovación
+Limpieza profunda + ventanas + tapizados
+12 %
+Mudanza
+Limpieza profunda + heladera + horno + balcón (entrada y salida)
+15 %
+Post-obra Total
+Post-obra + ventanas + pisos + desinfección
+12 %
+Mensual 4x
+4 limpiezas regulares prepagadas, una por semana
+12 %
+Oficina Semanal
+3 visitas por semana, horario fijo y empleado fijo
+Tarifa corporativa
+Regalo
+Cupón de limpieza regalable con mensaje y fecha de canje
+Sin descuento
+Configuración de cada combo: nombre, descripción, imagen, servicios y elementos incluidos, tipo de precio (fijo o porcentaje), vigencia, cupo máximo, zonas habilitadas, tipos de hogar permitidos, si es acumulable y si se muestra en la web pública.
+21.2 Tipos de ofertas y descuentos
+Tipo
+Regla
+Parámetros
+Primera compra
+Descuento automático al primer servicio
+%, tope en Gs.
+Horario valle
+Descuento en franjas de baja demanda
+Franja, días, %
+Cupón
+Código ingresado por el cliente
+% o monto, mínimo de compra, tope, uso único o múltiple, vencimiento
+Referidos
+Crédito para quien invita y para el invitado
+Monto, condición (primer servicio completado)
+Recurrencia
+Descuento por plan semanal o quincenal; 4.ª orden consecutiva con 5 %
+%, frecuencia
+Oferta flash
+Descuento por tiempo limitado con cupo y cuenta regresiva
+Inicio, fin, cupos
+Cumpleaños
+Cupón automático en la semana del cumpleaños
+%, vigencia
+Puntos
+1 punto cada X Gs.; canje por descuento
+Tasa de acumulación y canje
+Empresas
+Tarifa por volumen mensual
+Escalas por horas/mes
+Campaña por zona
+Descuento para impulsar demanda en una zona
+Zona, %, vigencia
+Reactivación
+Cupón a clientes sin pedidos en 45 días
+Días, %, vigencia
+21.3 Reglas para proteger el margen
+1. Orden de aplicación: combo, luego oferta automática, luego cupón, luego puntos, luego recargos, luego IVA.
+2. Acumulación: por defecto no se acumulan; cada oferta marca si es acumulable. Si hay varias aplicables, se aplica la más favorable al cliente dentro del límite permitido.
+3. Piso de margen: el sistema bloquea cualquier descuento que deje el margen de la orden por debajo del mínimo configurable (por defecto 35 %, con un piso absoluto de 20 % para campañas especiales aprobadas).
+4. Tope total de descuento por orden (ej. 30 %) y por cliente por mes.
+5. Los recargos nocturnos, de emergencia y de preferencia no se descuentan.
+6. Uso: cupos globales y por cliente, vigencia con zona horaria, y segmentación (nuevos, recurrentes, empresas, zona).
+7. Auditoría: cada descuento aplicado queda guardado en la orden con su origen, monto y quién lo creó.
+8. Los reembolsos por cancelación devuelven el monto efectivamente pagado, no el precio de lista.
+Fórmula actualizada:
+subtotal   = tarifa_hora × horas_est + Σ adicional_elemento
+subtotal_c = subtotal − descuento_combo − descuento_oferta − descuento_cupon − canje_puntos
+total      = subtotal_c × recargo_horario × recargo_urgencia × recargo_preferencia + traslado_zona
+IVA        = total / 11
+validar    : margen(total) ≥ margen_minimo, de lo contrario se recorta el descuento
+21.4 Experiencia del cliente
+• Sección Ofertas en el inicio con banners y cuenta regresiva para ofertas flash.
+• Los combos aparecen como primera opción en el paso 2 del asistente, con etiqueta «Ahorras Gs. X» y comparación contra comprar por separado.
+• Campo de cupón en el presupuesto con validación instantánea y mensaje claro si no aplica.
+• Billetera de puntos y créditos en el perfil, con vencimientos visibles.
+• Enlace personal de referidos para compartir por WhatsApp.
+• Notificaciones: oferta nueva, cupón por vencer, cumpleaños, reactivación.
+21.5 Panel del administrador
+• Crear y programar combos, ofertas y cupones, con vista previa de cómo los verá el cliente.
+• Simulador de margen: antes de publicar, muestra el margen resultante por tipo de hogar y de limpieza.
+• Generación masiva de cupones y campañas segmentadas por WhatsApp.
+• Reporte de rendimiento por oferta: usos, ingresos, descuento otorgado, margen y retorno de la campaña.
+• Activar, pausar o expirar una oferta en un clic.
+21.6 Datos y endpoints
+Entidad
+Campos clave
+combos
+id, nombre, descripcion, imagen, tipo_precio, valor, vigente_desde, vigente_hasta, cupo, acumulable, publico_web, activo
+combo_items
+combo_id, tipo_limpieza_id, elemento_id, cantidad
+promociones
+id, nombre, tipo, valor, tope, minimo, segmento, zona_id, vigente_desde, vigente_hasta, cupo, acumulable, prioridad
+cupones
+id, codigo (único), promocion_id, uso_maximo, uso_por_cliente, vence_en
+cupon_usos
+cupon_id, cliente_id, orden_id, monto, fecha
+puntos_movimientos
+cliente_id, orden_id, tipo (ganado/canjeado/vencido), puntos, fecha
+referidos
+referidor_id, referido_id, estado, credito_otorgado
+ordenes (campos nuevos)
+combo_id, detalle_descuentos (JSONB), margen_calculado
+Método
+Ruta
+Descripción
+GET
+/publico/combos · /publico/ofertas
+Catálogo para la web pública
+POST
+/cupones/validar
+Valida un código para un presupuesto
+POST
+/presupuesto
+Ahora aplica combo, ofertas, cupón y puntos
+GET
+/cliente/puntos · /cliente/referidos
+Billetera y referidos
+CRUD
+/admin/combos · /admin/promociones · /admin/cupones
+Gestión
+POST
+/admin/promociones/simular
+Simulador de margen
+GET
+/admin/reportes/promociones
+Rendimiento de campañas
+22. Sitio web público (primera impresión)
+El sitio es la puerta de entrada: presenta la marca, convence y lleva al registro. Todo lo que el visitante ve (combos, precios, testimonios, zonas) sale de la misma base de datos que la plataforma, por eso «todo va de la mano».
+22.1 Estructura de la página principal
+Orden
+Sección
+Contenido
+1
+Encabezado fijo
+Logo, menú (Servicios, Combos, Nosotros, Empresas, Preguntas), botones Ingresar y Registrarse
+2
+Portada (hero)
+Mensaje principal, subtítulo, botón Solicitar limpieza, botón Registrarme gratis, imagen o video corto
+3
+Confianza
+Empleados verificados, garantía de re-limpieza, seguimiento en vivo, pago seguro
+4
+Cómo funciona
+4 pasos con íconos: elige, agenda, sigue en vivo, califica
+5
+Servicios
+Regular, profunda, post-obra, oficinas, con qué incluye cada una
+6
+Combos y ofertas
+Tarjetas dinámicas desde la API, con ahorro y vigencia
+7
+Cotizador rápido
+Tipo de hogar, tipo de limpieza y elementos; muestra precio estimado sin iniciar sesión
+8
+Sobre nosotros
+Historia, misión, valores, equipo, fotos reales
+9
+Zonas de cobertura
+Mapa de Google con las zonas atendidas y buscador de dirección
+10
+Testimonios
+Calificaciones reales, fotos antes/después, cantidad de servicios realizados
+11
+Empresas
+Beneficios corporativos y formulario de cotización
+12
+Trabaja con nosotros
+Postulación de empleados con formulario y documentos
+13
+Preguntas frecuentes
+Acordeón con pagos, cancelaciones, seguridad, cobertura
+14
+Contacto
+Formulario, WhatsApp, teléfono, correo, mapa
+15
+Pie de página
+Términos, privacidad, políticas de cancelación, redes sociales
+Elementos flotantes: botón de WhatsApp y una barra fija en móvil con Solicitar limpieza.
+22.2 Embudo de registro
+1. El visitante usa el cotizador y ve su precio estimado.
+2. Al pulsar Continuar, se le pide registrarse; la selección se conserva como borrador y se restaura al terminar el registro.
+3. Registro público: nombre, apellido, número de cédula, teléfono, correo (opcional) y aceptación de términos.
+4. Verificación por código enviado por WhatsApp o SMS.
+5. El cliente crea su propia contraseña en el mismo flujo (en el autoregistro no se usa la cédula como clave; ese mecanismo con modal queda para clientes dados de alta por el administrador).
+6. Tour de bienvenida y vuelta directa al presupuesto con la selección ya cargada.
+7. Descuento de primera compra aplicado automáticamente y visible desde el primer momento.
+22.3 Gestión de contenido
+Los textos, imágenes, testimonios, preguntas frecuentes, combos y banners del sitio se editan desde el panel de administración (tabla contenido_sitio con clave, valor, idioma y vigencia), sin pedir cambios al desarrollador. Se puede programar contenido por fecha (por ejemplo, campañas por feriado).
+22.4 Rendimiento, SEO y medición
+• Renderizado en servidor o generación estática, imágenes en WebP/AVIF con carga diferida, objetivo de Lighthouse ≥ 90 en móvil.
+• Metaetiquetas, Open Graph, sitemap.xml, robots.txt y datos estructurados LocalBusiness y Service.
+• Páginas por servicio y por zona para posicionamiento local.
+• Analítica (GA4) y píxel de Meta con aviso de cookies y consentimiento.
+• Eventos de conversión medidos: visita, cotización, inicio de registro, registro completo, primera solicitud, primer pago.
+• Pruebas A/B del mensaje principal y del botón principal.
+• Formularios con protección anti-spam (CAPTCHA invisible, límite de envíos).
+23. Stack tecnológico
+23.1 Backend y datos (definido)
+Capa
+Tecnología
+API
+FastAPI (Python 3.12), Pydantic v2, documentación OpenAPI automática
+Base de datos
+PostgreSQL 16 con extensión PostGIS (geocercas, distancias, zonas como polígonos)
+ORM y migraciones
+SQLAlchemy 2.0 + Alembic
+Caché, límites y colas
+Redis; tareas en segundo plano con ARQ o Celery (recordatorios, notificaciones, liquidaciones)
+Tiempo real
+WebSockets de FastAPI para seguimiento en vivo y alertas del administrador
+Autenticación
+JWT de corta duración + refresh rotativo, contraseñas con Argon2id, roles y permisos
+Archivos
+Almacenamiento compatible con S3 (Cloudflare R2 o MinIO) para fotos antes/después y documentos
+Integraciones
+Google Maps Platform, WhatsApp Cloud API, pasarela de pagos, módulo SIFEN existente por HTTP
+Calidad
+pytest, Ruff, pre-commit, Sentry
+Despliegue
+Docker Compose, Caddy o Nginx, GitHub Actions; VPS para empezar
+Estructura sugerida del proyecto:
+app/
+  main.py
+  core/         # config, seguridad, dependencias, base de datos
+  modules/
+    auth/  usuarios/  clientes/  empleados/  direcciones/
+    ordenes/  precios/  promociones/  combos/  pagos/
+    mapas/  seguimiento/  notificaciones/  facturacion/
+    contenido_sitio/  parametros/  reportes/
+  workers/      # tareas en segundo plano
+  tests/
+alembic/
+Cada módulo contiene router.py, schemas.py, models.py, service.py y repository.py.
+23.2 Frontend: Angular (decidido)
+El frontend se construye con Angular (versión 20 o superior): componentes standalone, Signals, nuevo control de flujo @if / @for y formularios reactivos tipados. Es un solo proyecto con carga diferida por zona, renderizado en servidor para el sitio público y PWA para cliente y empleado.
+Necesidad
+Tecnología
+Framework
+Angular (standalone, Signals, formularios reactivos tipados)
+Interfaz
+Tailwind CSS + PrimeNG (tablas, calendario, diálogos y tarjetas del panel)
+Mapas
+@angular/google-maps (GoogleMap, MapAdvancedMarker, MapDirectionsRenderer) + Places API (New) para autocompletado
+Estado
+Signals en servicios; NgRx SignalStore para el asistente de solicitud y el seguimiento
+Cliente de la API
+Generado desde el OpenAPI de FastAPI con ng-openapi-gen
+Tiempo real
+WebSocket con RxJS webSocket y reconexión con retroceso exponencial
+SSR y SEO
+@angular/ssr: prerenderizado del sitio público e hidratación; zonas privadas solo en cliente
+PWA
+@angular/pwa (service worker), Web Push con SwPush, cola offline en IndexedDB (Dexie)
+Idiomas
+Transloco (es, gn, en)
+Gráficos del panel
+ngx-echarts
+Calidad
+angular-eslint, Prettier, Vitest o Jest, Playwright para pruebas e2e
+App nativa (opcional)
+Capacitor, sin reescribir el código
+Por qué Angular encaja aquí: el sistema tiene tres roles, muchos formularios y reglas por estado; Angular aporta una estructura uniforme, formularios reactivos tipados para el asistente de solicitud, inyección de dependencias para los servicios de mapas, seguimiento y autenticación, y guardias e interceptores nativos para los roles y el modal de primer ingreso.
+23.3 Estructura del proyecto Angular
+src/app/
+  core/
+    auth/            # AuthService (signals), guards, interceptors
+    http/            # cliente OpenAPI generado, manejo de errores
+    maps/            # MapsLoader, GeocoderService, PlacesService
+    realtime/        # WebSocketService con reconexión
+    offline/         # cola IndexedDB (Dexie) e idempotencia
+    config/          # parámetros públicos y tema (colores, logo)
+  shared/
+    ui/              # botones, tarjetas, modales, skeletons
+    validators/      # cédula, teléfono, contraseña
+    pipes/           # moneda Gs., fechas, estados
+  layouts/           # público, cliente, empleado, admin
+  features/
+    publico/         # inicio, servicios, combos, nosotros, empresas, faq, trabaja, registro, login, cotizador
+    cliente/         # inicio, solicitar, presupuesto, pago, seguimiento, mis-servicios, calificar,
+                     # direcciones, facturación, planes, ofertas, puntos, perfil, soporte
+    empleado/        # inicio, ofertas, agenda, jornada, ingresos, liquidaciones, capacitaciones, soporte
+    admin/           # panel, solicitudes, mapa-vivo, clientes, empleados, finanzas, combos,
+                     # promociones, contenido-sitio, parametros, reportes, incidentes, auditoria
+  app.routes.ts      # rutas con loadChildren por zona
+  app.config.ts      # provideRouter, provideHttpClient(withInterceptors), provideServiceWorker
+  app.routes.server.ts  # modo de render por ruta (SSR/prerender/cliente)
+23.4 Zonas, rutas y guardias
+Zona
+Rutas
+Guardias
+Render
+Sitio público
+/, /servicios, /combos, /nosotros, /empresas, /faq, /trabaja-con-nosotros, /registro, /login
+Ninguna; /login y /registro redirigen si ya hay sesión
+Prerender (estáticas) y servidor (combos y ofertas)
+App del cliente
+/app/...
+authGuard, rolGuard('cliente'), passwordChangeGuard
+Solo cliente (PWA)
+App del empleado
+/empleado/...
+authGuard, rolGuard('empleado'), passwordChangeGuard
+Solo cliente (PWA)
+Administración
+/admin/...
+authGuard, rolGuard('admin'), permisoGuard('finanzas.ver') por ruta
+Solo cliente
+• authInterceptor: agrega el token de acceso a cada petición a la API.
+• refreshInterceptor: ante un 401 renueva el token una sola vez (las demás peticiones esperan en cola) y reintenta; si falla, cierra la sesión.
+• errorInterceptor: convierte los errores de FastAPI (detail) en mensajes y avisos claros; un 403 con código PASSWORD_CHANGE_REQUIRED abre el modal de cambio de contraseña.
+• passwordChangeGuard: si debe_cambiar_password es verdadero, solo deja pasar a la ruta que muestra el modal.
+• rolGuard y permisoGuard: usan canMatch para que un rol no descargue el código de otra zona.
+• idempotencyInterceptor: agrega Idempotency-Key a las operaciones de check-in, check-out y pagos.
+• Tokens: el de acceso vive en memoria; el de renovación en cookie HttpOnly, Secure, SameSite=Strict, nunca en localStorage.
+• Tema dinámico: al iniciar, provideAppInitializer carga /publico/tema (colores, logo, textos) y los aplica como variables CSS.
+23.5 Orden de construcción sugerido
+1. Base: FastAPI + PostgreSQL + autenticación (login por cédula, modal, registro público con código); en Angular, core/auth, guardias, interceptores y layouts.
+2. Catálogos y parámetros con el motor de precios, combos y descuentos; cliente API generado desde OpenAPI.
+3. Sitio público con cotizador y registro, renderizado en servidor.
+4. Solicitud, asignación y jornada del empleado con Google Maps y WebSocket.
+5. Pagos, planilla de ingresos y facturación SIFEN.
+6. PWA, notificaciones push y modo sin conexión del empleado.
+7. Reportes, optimización y pruebas de carga.
+23.6 Pantallas y componentes clave
+Pantalla
+Componentes Angular
+Detalle técnico
+Login del cliente
+LoginPageComponent
+Formulario reactivo (cédula numérica + contraseña); error genérico; huella/Face ID en la PWA con WebAuthn cuando está activo
+Modal de contraseña
+ChangePasswordDialogComponent (PrimeNG p-dialog)
+closable=false, closeOnEscape=false, modal=true; requisitos que se tildan solos con Signals; botón deshabilitado hasta cumplirlos
+Asistente de solicitud
+RequestWizardComponent, RequestStore (SignalStore)
+6 pasos; borrador autoguardado con debounce de 800 ms en PUT /ordenes/borrador; restaura la selección del cotizador
+Presupuesto
+QuoteSummaryComponent
+POST /presupuesto con debounce de 300 ms; el total se anima; muestra combos, ofertas y cupón
+Dirección
+AddressPickerComponent
+Ver 23.7
+Seguimiento en vivo
+LiveTrackingComponent
+WebSocket /ws/ordenes/{id}; marcador interpolado y ETA
+Jornada del empleado
+JobFlowComponent
+Botones habilitados según estado y geocerca; checklist, fotos, imprevistos y SOS
+Checklist
+ChecklistComponent
+Guarda cada tarea en la cola offline y sincroniza al reconectar
+Cola de solicitudes (admin)
+RequestQueueComponent
+PrimeNG p-table con scroll virtual; filas actualizadas por WebSocket
+Mapa en vivo (admin)
+LiveMapComponent
+Agrupación de marcadores, filtros por estado y zona
+Combos y promociones
+PromoEditorComponent
+Simulador de margen antes de publicar
+Parámetros
+ParamEditorComponent
+Historial, vigencia programada y comparación de valores
+Contenido del sitio
+SiteContentEditorComponent
+Edición de textos, banners, testimonios y preguntas frecuentes
+Principios de experiencia: esqueletos de carga en lugar de ruedas, estados vacíos con una acción sugerida, animaciones cortas (150–250 ms) y respeto de prefers-reduced-motion, modo claro y oscuro, objetivos táctiles de al menos 44 px.
+23.7 Google Maps en Angular
+• Claves: una clave web restringida por dominio (HTTP referrers) y solo a las APIs necesarias (Maps JavaScript, Places, Geocoding); otra clave de servidor, restringida por IP, para que FastAPI llame a Routes/Distance Matrix.
+• AddressPickerComponent: autocompletado de Places restringido a Paraguay (componentRestrictions: { country: 'py' }), marcador arrastrable, geocodificación inversa al soltar el pin, botón «Usar mi ubicación» con enableHighAccuracy: true, referencia, piso y foto de fachada.
+• Cobertura: el cliente valida con google.maps.geometry.poly.containsLocation para dar respuesta inmediata, pero la validación definitiva la hace el servidor con PostGIS (ST_Contains sobre las zonas).
+• Seguimiento: MapAdvancedMarker del empleado con movimiento interpolado entre posiciones, MapDirectionsRenderer para la ruta y ETA calculado por el backend.
+• Navegación del empleado: botones «Abrir en Google Maps» (https://www.google.com/maps/dir/?api=1&destination=LAT,LNG&travelmode=driving) y «Abrir en Waze» (https://waze.com/ul?ll=LAT,LNG&navigate=yes) con la dirección precargada.
+• Envío de posición: watchPosition envía latitud y longitud por WebSocket cada 10–15 s solo en los estados EN_CAMINO y EN_CURSO, con indicador visible de que se comparte la ubicación.
+• Limitación importante: una PWA puede ser pausada por el navegador con la pantalla apagada. Para seguimiento continuo garantizado, la app del empleado se empaqueta con Capacitor y un plugin de geolocalización en segundo plano; mientras tanto se pide mantener la app abierta durante el servicio.
+• Costos: token de sesión de Places por selección, caché de geocodificaciones por place_id, y envíos de posición adaptativos (más espaciados cuando el empleado está quieto).
+23.8 PWA, modo sin conexión y notificaciones
+• Service worker (ngsw-config.json): la aplicación se precarga (prefetch); los catálogos públicos usan estrategia freshness con timeout de 3 s; los parámetros públicos usan performance con vigencia de 1 h; las respuestas con datos personales o financieros no se almacenan en caché.
+• Cola offline (IndexedDB con Dexie): check-in, check-out, tareas del checklist y fotos se guardan localmente y se reenvían al volver la conexión, cada operación con Idempotency-Key para que FastAPI no las duplique.
+• Push: Web Push con claves VAPID mediante SwPush.requestSubscription; la suscripción se guarda en POST /notificaciones/suscripcion. En iOS requiere que la app esté instalada en la pantalla de inicio.
+• Instalación: banner propio basado en beforeinstallprompt, mostrado después del primer servicio completado.
+• Actualizaciones: SwUpdate avisa «Hay una nueva versión» y recarga con confirmación del usuario.
+23.9 SSR, SEO y rendimiento
+• Modo de render por ruta (app.routes.server.ts): RenderMode.Prerender para las páginas públicas estáticas, RenderMode.Server con caché de 5 min para combos y ofertas, y RenderMode.Client para /app, /empleado y /admin.
+• Carga diferida: @defer (on viewport) para testimonios, mapa de zonas y preguntas frecuentes; NgOptimizedImage con priority en la imagen principal.
+• SEO: servicios Title y Meta, Open Graph, JSON-LD (LocalBusiness, Service), sitemap.xml y robots.txt generados en la compilación.
+• Presupuesto de rendimiento: LCP < 2,5 s, INP < 200 ms, CLS < 0,1 y JavaScript inicial del sitio público < 200 KB comprimido, controlado con budgets en angular.json.
+• Accesibilidad: WCAG 2.2 nivel AA, @angular/cdk/a11y para el foco en modales, etiquetas y contraste verificados en CI.
+23.10 Calidad, entornos y despliegue
+• Entornos: desarrollo, staging y producción; la URL de la API y las claves públicas se leen de /assets/config.json al arrancar, de modo que cambiar de entorno no exige recompilar.
+• Integración continua (GitHub Actions): lint, pruebas unitarias, compilación, pruebas e2e con Playwright y construcción de la imagen Docker.
+• Pruebas que no pueden faltar: login por cédula con modal obligatorio; registro público con código; cotizador a registro con borrador restaurado; solicitud a pago; empleado con check-in dentro y fuera de la geocerca (Playwright permite simular geolocalización); cola offline con reconexión; guardias por rol.
+• Despliegue: contenedor Node para el SSR de Angular detrás de Caddy o Nginx, estáticos de las zonas privadas servidos desde CDN; FastAPI, PostgreSQL y Redis en el mismo Docker Compose o en servicios administrados.
+• Seguridad del frontend: Content Security Policy estricta (incluyendo los dominios de Google Maps), sin innerHTML sin sanitizar, dependencias auditadas en CI y registro de errores con Sentry sin datos personales.
