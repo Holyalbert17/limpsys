@@ -1,6 +1,22 @@
-# Limsys API
+# Limsys
 
-Backend de la plataforma de limpieza para la web y la app móvil. FastAPI habla con PostgreSQL usando SQL directo: no hay ORM. El prefijo de la API es `/api/v1`. La documentación interactiva está en `/docs`. La raíz redirige ahí.
+Limsys es la plataforma de limpieza a domicilio. La misma API sirve al sitio público, a la app del cliente, a la app del empleado y al panel de administración. Los montos están en guaraníes. Las tarifas, los recargos y las reglas del negocio viven como parámetros: se cambian desde el panel.
+
+El prefijo de la API es `/api/v1`. La documentación interactiva está en `/docs`. La raíz del servidor redirige ahí.
+
+## Qué hace
+
+El cliente cotiza, reserva, paga, sigue el servicio y califica. El empleado recibe la oferta, hace el recorrido del día y cobra su liquidación. El panel asigna, mira el mapa, resuelve problemas y paga la planilla. Quien todavía no tiene cuenta puede ver servicios, precios, zonas y cobertura, y dejar un contacto, una cotización de empresa o una postulación.
+
+## Cómo funciona
+
+1. La persona entra con cédula y contraseña. Si el alta la hizo el panel, la primera clave es la cédula y tiene que cambiarla antes de operar. Si se registró sola, confirma un código de 6 dígitos.
+2. El cliente arma la solicitud: tipo de hogar, tipo de limpieza, dirección y horario. La API calcula el precio con su historial, exige el anticipo y deja la orden en la cola.
+3. El panel asigna a un empleado, a mano o con el ranking. El empleado acepta, marca que va en camino, hace el check-in, completa el checklist, sube las fotos y cierra.
+4. Si el pago ya cubría el total, al cerrar la orden queda pagada, se emite el comprobante y se suman los puntos. Después el cliente y el empleado se califican.
+5. Una nota baja, dentro del plazo, abre una re-limpieza. Un problema durante el servicio abre una disputa que resuelve el panel. Cancelar fuera de plazo tiene cargo. El empleado que cancela devuelve la orden a la cola.
+
+Cada uno de esos pasos está detallado más abajo, con las reglas y con la ruta que lo ejecuta.
 
 La base local de desarrollo es `limsys`, usuario `postgres`, contraseña `1`, puerto `5432`.
 
@@ -165,7 +181,7 @@ El cliente y el empleado asignado se califican después del cobro. Otro empleado
 
 ## Mapas y zonas
 
-El proyecto no usa PostGIS. El polígono se guarda como GeoJSON `[lng, lat]`. `catalogo.punto_en_poligono` hace ray casting y `catalogo.distancia_metros` hace haversine. Python repite esas dos cuentas en `app/domain/geo.py`.
+El polígono de cada zona se guarda como GeoJSON `[lng, lat]`. `catalogo.punto_en_poligono` decide si el punto cae adentro y `catalogo.distancia_metros` mide la distancia. Las mismas dos cuentas están en `app/domain/geo.py`.
 
 El viaje estimado es la distancia en línea recta por `factor_ruta` (1.3), a `velocidad_urbana_kmh` (30). Si `GOOGLE_MAPS_SERVER_KEY` tiene valor, se usa Distance Matrix y el resultado se cachea en `sistema.cache_geo`.
 
